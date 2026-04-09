@@ -125,9 +125,14 @@ fn read_project_name() -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static CWD_LOCK: Mutex<()> = Mutex::new(());
 
     #[tokio::test]
     async fn build_fails_gracefully_outside_project() {
+        let _guard = CWD_LOCK.lock().expect("lock");
+
         let temp_dir = std::env::temp_dir().join("blixt-build-test-no-project");
         let _ = std::fs::create_dir_all(&temp_dir);
 
@@ -148,5 +153,43 @@ mod tests {
             err_msg.contains("No Cargo.toml found"),
             "Unexpected error: {err_msg}"
         );
+    }
+
+    #[test]
+    fn read_project_name_parses_standard_cargo_toml() {
+        let _guard = CWD_LOCK.lock().expect("lock");
+
+        let tmp = tempfile::TempDir::new().expect("temp dir");
+        let cargo_toml = tmp.path().join("Cargo.toml");
+        std::fs::write(
+            &cargo_toml,
+            "[package]\nname = \"my-app\"\nversion = \"0.1.0\"\n",
+        )
+        .expect("write");
+
+        let original = std::env::current_dir().expect("cwd");
+        std::env::set_current_dir(tmp.path()).expect("cd");
+
+        let result = read_project_name();
+
+        std::env::set_current_dir(original).expect("restore cwd");
+        assert_eq!(result.unwrap(), "my-app");
+    }
+
+    #[test]
+    fn read_project_name_fails_without_name_field() {
+        let _guard = CWD_LOCK.lock().expect("lock");
+
+        let tmp = tempfile::TempDir::new().expect("temp dir");
+        let cargo_toml = tmp.path().join("Cargo.toml");
+        std::fs::write(&cargo_toml, "[package]\nversion = \"0.1.0\"\n").expect("write");
+
+        let original = std::env::current_dir().expect("cwd");
+        std::env::set_current_dir(tmp.path()).expect("cd");
+
+        let result = read_project_name();
+
+        std::env::set_current_dir(original).expect("restore cwd");
+        assert!(result.is_err());
     }
 }

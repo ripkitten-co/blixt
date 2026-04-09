@@ -1,26 +1,65 @@
 use std::fs;
+use std::io::IsTerminal;
 use std::path::Path;
 
+use clap::ValueEnum;
 use console::style;
+use dialoguer::Select;
 
 use crate::validate;
 
+#[derive(Debug, Clone, Copy, PartialEq, ValueEnum)]
+pub enum DbBackend {
+    #[value(alias = "pg")]
+    Postgres,
+    Sqlite,
+}
+
+impl DbBackend {
+    fn prompt() -> Result<Self, String> {
+        if !std::io::stdin().is_terminal() {
+            return Err("no TTY detected. Use --db postgres or --db sqlite.".into());
+        }
+        let options = &["PostgreSQL", "SQLite"];
+        let selection = Select::new()
+            .with_prompt("Select a database")
+            .items(options)
+            .default(0)
+            .interact()
+            .map_err(|e| format!("prompt failed: {e}"))?;
+        match selection {
+            0 => Ok(Self::Postgres),
+            1 => Ok(Self::Sqlite),
+            _ => unreachable!(),
+        }
+    }
+}
+
+fn resolve_db_backend(db_arg: Option<DbBackend>) -> Result<DbBackend, String> {
+    match db_arg {
+        Some(db) => Ok(db),
+        None => DbBackend::prompt(),
+    }
+}
+
 const DATASTAR_VERSION: &str = "v1.0.0-RC.8";
-const DATASTAR_URL: &str = "https://raw.githubusercontent.com/starfederation/datastar/v1.0.0-RC.8/bundles/datastar.js";
+const DATASTAR_URL: &str =
+    "https://raw.githubusercontent.com/starfederation/datastar/v1.0.0-RC.8/bundles/datastar.js";
 
 /// Logo SVG embedded at compile time from the repo root logo.svg
 const LOGO_SVG: &str = include_str!("../../logo.svg");
 
-pub async fn run(name: &str) -> Result<(), String> {
-    run_in(Path::new("."), name).await
+pub async fn run(name: &str, db_arg: Option<DbBackend>) -> Result<(), String> {
+    let db = resolve_db_backend(db_arg)?;
+    run_in(Path::new("."), name, db).await
 }
 
-pub async fn run_in(base_dir: &Path, name: &str) -> Result<(), String> {
+pub async fn run_in(base_dir: &Path, name: &str, db: DbBackend) -> Result<(), String> {
     let project = base_dir.join(name);
     check_no_existing_dir(&project)?;
     create_directories(&project)?;
     let pascal = validate::to_pascal_case(name);
-    write_all_files(&project, name, &pascal)?;
+    write_all_files(&project, name, &pascal, db)?;
     download_datastar(&project).await?;
     compile_tailwind(&project).await?;
     print_success(name);
@@ -28,12 +67,12 @@ pub async fn run_in(base_dir: &Path, name: &str) -> Result<(), String> {
 }
 
 #[cfg(test)]
-pub fn run_in_sync(base_dir: &Path, name: &str) -> Result<(), String> {
+pub fn run_in_sync(base_dir: &Path, name: &str, db: DbBackend) -> Result<(), String> {
     let project = base_dir.join(name);
     check_no_existing_dir(&project)?;
     create_directories(&project)?;
     let pascal = validate::to_pascal_case(name);
-    write_all_files(&project, name, &pascal)?;
+    write_all_files(&project, name, &pascal, db)?;
     Ok(())
 }
 
@@ -63,8 +102,8 @@ fn create_directories(project: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn write_all_files(project: &Path, name: &str, pascal: &str) -> Result<(), String> {
-    write_cargo_toml(project, name)?;
+fn write_all_files(project: &Path, name: &str, pascal: &str, db: DbBackend) -> Result<(), String> {
+    write_cargo_toml(project, name, db)?;
     write_main_rs(project)?;
     write_controllers_mod(project)?;
     write_home_controller(project, name)?;
@@ -75,7 +114,7 @@ fn write_all_files(project: &Path, name: &str, pascal: &str) -> Result<(), Strin
     write_logo(project)?;
     write_static_files(project)?;
     write_gitkeep_files(project)?;
-    write_env_example(project)?;
+    write_env_example(project, db)?;
     write_gitignore(project)?;
     Ok(())
 }
@@ -88,17 +127,25 @@ fn write_file(project: &Path, relative: &str, content: &str) -> Result<(), Strin
 // --- Downloads ---
 
 async fn download_datastar(project: &Path) -> Result<(), String> {
-    println!("  {} Downloading Datastar {DATASTAR_VERSION}...", style("↓").dim());
+    println!(
+        "  {} Downloading Datastar {DATASTAR_VERSION}...",
+        style("↓").dim()
+    );
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| format!("HTTP client error: {e}"))?;
-    let resp = client.get(DATASTAR_URL).send().await
+    let resp = client
+        .get(DATASTAR_URL)
+        .send()
+        .await
         .map_err(|e| format!("Failed to download Datastar: {e}"))?;
     if !resp.status().is_success() {
         return Err(format!("Datastar download failed: HTTP {}", resp.status()));
     }
-    let body = resp.text().await
+    let body = resp
+        .text()
+        .await
         .map_err(|e| format!("Failed to read Datastar response: {e}"))?;
     write_file(project, "static/js/datastar.js", &body)
 }
@@ -109,10 +156,13 @@ async fn compile_tailwind(project: &Path) -> Result<(), String> {
     let input = project.join("static/css/app.css");
     let output = project.join("static/css/output.css");
     let status = tokio::process::Command::new(&binary)
-        .arg("--input").arg(&input)
-        .arg("--output").arg(&output)
+        .arg("--input")
+        .arg(&input)
+        .arg("--output")
+        .arg(&output)
         .arg("--minify")
-        .status().await
+        .status()
+        .await
         .map_err(|e| format!("Failed to run Tailwind: {e}"))?;
     if !status.success() {
         return Err("Tailwind compilation failed".into());
@@ -122,7 +172,13 @@ async fn compile_tailwind(project: &Path) -> Result<(), String> {
 
 // --- File generators ---
 
-fn write_cargo_toml(project: &Path, name: &str) -> Result<(), String> {
+fn write_cargo_toml(project: &Path, name: &str, db: DbBackend) -> Result<(), String> {
+    let blixt_dep = match db {
+        DbBackend::Postgres => r#"blixt = { git = "https://github.com/ripkitten-co/blixt" }"#,
+        DbBackend::Sqlite => {
+            r#"blixt = { git = "https://github.com/ripkitten-co/blixt", default-features = false, features = ["sqlite"] }"#
+        }
+    };
     let content = format!(
         r#"[package]
 name = "{name}"
@@ -132,7 +188,7 @@ edition = "2024"
 [dependencies]
 askama = "0.15"
 axum = {{ version = "0.8", features = ["macros"] }}
-blixt = {{ git = "https://github.com/ripkitten-co/blixt" }}
+{blixt_dep}
 chrono = {{ version = "0.4", features = ["serde"] }}
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
@@ -175,7 +231,11 @@ mod controllers;
 }
 
 fn write_controllers_mod(project: &Path) -> Result<(), String> {
-    write_file(project, "src/controllers/mod.rs", "pub mod api;\npub mod home;\n")
+    write_file(
+        project,
+        "src/controllers/mod.rs",
+        "pub mod api;\npub mod home;\n",
+    )
 }
 
 fn write_home_controller(project: &Path, name: &str) -> Result<(), String> {
@@ -303,7 +363,8 @@ fn write_layout_template(project: &Path) -> Result<(), String> {
 }
 
 fn write_home_template(project: &Path, pascal_name: &str) -> Result<(), String> {
-    let content = format!(r##"
+    let content = format!(
+        r##"
 {{% extends "layouts/app.html" %}}
 {{% block title %}}{pascal_name}{{% endblock %}}
 {{% block description %}}A lightning-fast web application built with Blixt{{% endblock %}}
@@ -402,15 +463,22 @@ fn write_home_template(project: &Path, pascal_name: &str) -> Result<(), String> 
   </div>
 </main>
 {{% endblock %}}
-"##);
+"##
+    );
     write_file(project, "templates/pages/home.html", &content)
 }
 
 fn write_fragment_templates(project: &Path) -> Result<(), String> {
-    write_file(project, "templates/fragments/time.html",
-        r#"<div id="server-time" class="font-mono text-sm text-amber-400">{{ time }}</div>"#)?;
-    write_file(project, "templates/fragments/status.html",
-        r#"<div id="api-result" class="font-mono text-xs text-amber-400/80 leading-relaxed">{ "status": "{{ status }}", "uptime": {{ uptime }}, "time": "{{ timestamp }}" }</div>"#)?;
+    write_file(
+        project,
+        "templates/fragments/time.html",
+        r#"<div id="server-time" class="font-mono text-sm text-amber-400">{{ time }}</div>"#,
+    )?;
+    write_file(
+        project,
+        "templates/fragments/status.html",
+        r#"<div id="api-result" class="font-mono text-xs text-amber-400/80 leading-relaxed">{ "status": "{{ status }}", "uptime": {{ uptime }}, "time": "{{ timestamp }}" }</div>"#,
+    )?;
     Ok(())
 }
 
@@ -438,15 +506,21 @@ fn write_gitkeep_files(project: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn write_env_example(project: &Path) -> Result<(), String> {
-    let content = "\
+fn write_env_example(project: &Path, db: DbBackend) -> Result<(), String> {
+    let db_url = match db {
+        DbBackend::Postgres => "DATABASE_URL=postgres://localhost/my_app",
+        DbBackend::Sqlite => "DATABASE_URL=sqlite://data.db",
+    };
+    let content = format!(
+        "\
 BLIXT_ENV=development
 HOST=127.0.0.1
 PORT=3000
-DATABASE_URL=postgres://localhost/my_app
+{db_url}
 JWT_SECRET=change-me-to-a-random-secret-at-least-32-chars
-";
-    write_file(project, ".env.example", content)
+"
+    );
+    write_file(project, ".env.example", &content)
 }
 
 fn write_gitignore(project: &Path) -> Result<(), String> {
@@ -478,7 +552,9 @@ mod tests {
 
     fn temp_project_dir(suffix: &str) -> PathBuf {
         let dir = std::env::temp_dir().join("blixt-test-new").join(format!(
-            "{}_{}", suffix, std::process::id()
+            "{}_{}",
+            suffix,
+            std::process::id()
         ));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("create temp dir");
@@ -491,7 +567,7 @@ mod tests {
         let project_name = "test_app";
         let project_dir = base.join(project_name);
 
-        let result = run_in_sync(&base, project_name);
+        let result = run_in_sync(&base, project_name, DbBackend::Postgres);
         assert!(result.is_ok(), "run_in_sync() failed: {:?}", result.err());
 
         let expected_files = [
@@ -518,10 +594,29 @@ mod tests {
             .expect("read layout");
         assert!(!layout.contains("cdn"), "Layout must not reference any CDN");
 
-        let main = fs::read_to_string(project_dir.join("src/main.rs"))
-            .expect("read main.rs");
-        assert!(main.contains("/api/status"), "main.rs should register API route");
-        assert!(main.contains("/fragments/time"), "main.rs should register SSE route");
+        let main = fs::read_to_string(project_dir.join("src/main.rs")).expect("read main.rs");
+        assert!(
+            main.contains("/api/status"),
+            "main.rs should register API route"
+        );
+        assert!(
+            main.contains("/fragments/time"),
+            "main.rs should register SSE route"
+        );
+
+        let cargo_toml =
+            fs::read_to_string(project_dir.join("Cargo.toml")).expect("read Cargo.toml");
+        assert!(
+            !cargo_toml.contains("default-features = false"),
+            "postgres project should use default features"
+        );
+
+        let env_example =
+            fs::read_to_string(project_dir.join(".env.example")).expect("read .env.example");
+        assert!(
+            env_example.contains("postgres://"),
+            "should use postgres URL"
+        );
 
         let _ = fs::remove_dir_all(&base);
     }
@@ -533,11 +628,72 @@ mod tests {
         let project_dir = base.join(project_name);
         fs::create_dir_all(&project_dir).expect("create existing dir");
 
-        let result = run_in_sync(&base, project_name);
+        let result = run_in_sync(&base, project_name, DbBackend::Postgres);
 
         assert!(result.is_err());
-        assert!(result.err().expect("should error").contains("already exists"));
+        assert!(
+            result
+                .err()
+                .expect("should error")
+                .contains("already exists")
+        );
 
         let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn scaffolds_sqlite_project() {
+        let base = temp_project_dir("sqlite");
+        let project_name = "sqlite_app";
+        let project_dir = base.join(project_name);
+
+        let result = run_in_sync(&base, project_name, DbBackend::Sqlite);
+        assert!(result.is_ok(), "run_in_sync() failed: {:?}", result.err());
+
+        let cargo_toml =
+            fs::read_to_string(project_dir.join("Cargo.toml")).expect("read Cargo.toml");
+        assert!(
+            cargo_toml.contains(r#"features = ["sqlite"]"#),
+            "should use sqlite feature"
+        );
+        assert!(
+            !cargo_toml.contains(r#"features = ["postgres"]"#),
+            "should not use postgres feature"
+        );
+
+        let env_example =
+            fs::read_to_string(project_dir.join(".env.example")).expect("read .env.example");
+        assert!(env_example.contains("sqlite://"), "should use sqlite URL");
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn db_backend_value_enum_parses_valid_values() {
+        use clap::ValueEnum;
+        assert_eq!(
+            DbBackend::from_str("postgres", true).unwrap(),
+            DbBackend::Postgres
+        );
+        assert_eq!(
+            DbBackend::from_str("pg", true).unwrap(),
+            DbBackend::Postgres
+        );
+        assert_eq!(
+            DbBackend::from_str("sqlite", true).unwrap(),
+            DbBackend::Sqlite
+        );
+        // case insensitive
+        assert_eq!(
+            DbBackend::from_str("POSTGRES", true).unwrap(),
+            DbBackend::Postgres
+        );
+    }
+
+    #[test]
+    fn db_backend_value_enum_rejects_invalid_values() {
+        use clap::ValueEnum;
+        assert!(DbBackend::from_str("mysql", true).is_err());
+        assert!(DbBackend::from_str("", true).is_err());
     }
 }

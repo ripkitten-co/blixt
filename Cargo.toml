@@ -20,7 +20,7 @@ tower-http = { version = "0.6", features = ["fs", "cors", "compression-gzip", "t
 askama = "0.15"
 
 # Database (compile-time checked SQL)
-sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "sqlite", "migrate", "chrono", "uuid"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "migrate", "chrono", "uuid"] }
 
 # Streams (async trait)
 futures-core = "0.3"

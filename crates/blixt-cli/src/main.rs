@@ -2,7 +2,11 @@ mod commands;
 mod tailwind;
 mod validate;
 
+#[cfg(test)]
+mod test_helpers;
+
 use clap::{Parser, Subcommand};
+use commands::new::DbBackend;
 use console::style;
 
 #[derive(Parser)]
@@ -18,6 +22,9 @@ enum Commands {
     New {
         /// Project name
         name: String,
+        /// Database backend. Prompts interactively if not specified.
+        #[arg(long, value_enum)]
+        db: Option<DbBackend>,
     },
     /// Start the development server
     Dev,
@@ -70,10 +77,10 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::New { name } => {
+        Commands::New { name, db } => {
             let name = require_valid_name(&name);
             let runtime = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
-            if let Err(message) = runtime.block_on(commands::new::run(&name)) {
+            if let Err(message) = runtime.block_on(commands::new::run(&name, db)) {
                 eprintln!("{} {message}", style("error:").red().bold());
                 std::process::exit(1);
             }
