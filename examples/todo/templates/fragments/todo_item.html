@@ -1,9 +1,0 @@
-<li id="todo-{{ todo.id }}" class="todo-item{% if todo.completed %} completed{% endif %}">
-    <span class="todo-title">{{ todo.title }}</span>
-    <div class="todo-actions">
-        <button data-on-click="@put('/todos/{{ todo.id }}/toggle')">
-            {% if todo.completed %}undo{% else %}done{% endif %}
-        </button>
-        <button data-on-click="@delete('/todos/{{ todo.id }}')">delete</button>
-    </div>
-</li>
