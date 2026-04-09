@@ -1,4 +1,5 @@
 #![cfg(test)]
+#![allow(unused)]
 
 use crate::config::{Config, Environment};
 

@@ -1,4 +1,5 @@
 #![cfg(test)]
+#![allow(unused)]
 
 use std::path::PathBuf;
 
