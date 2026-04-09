@@ -1,0 +1,11 @@
+<div id="todo-list">
+  {% if todos.is_empty() %}
+    <p class="text-zinc-500 text-sm py-8 text-center">No todos yet. Add one above.</p>
+  {% else %}
+    <ul class="space-y-2">
+      {% for todo in todos %}
+        {% include "fragments/todo_item.html" %}
+      {% endfor %}
+    </ul>
+  {% endif %}
+</div>
