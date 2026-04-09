@@ -1,3 +1,9 @@
+#[cfg(all(feature = "postgres", feature = "sqlite"))]
+compile_error!("Enable exactly one database backend: `postgres` or `sqlite`, not both.");
+
+#[cfg(not(any(feature = "postgres", feature = "sqlite")))]
+compile_error!("Enable at least one database backend feature: `postgres` or `sqlite`.");
+
 pub mod app;
 pub mod auth;
 pub mod config;
