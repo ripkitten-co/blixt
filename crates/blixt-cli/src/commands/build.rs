@@ -161,8 +161,11 @@ mod tests {
 
         let tmp = tempfile::TempDir::new().expect("temp dir");
         let cargo_toml = tmp.path().join("Cargo.toml");
-        std::fs::write(&cargo_toml, "[package]\nname = \"my-app\"\nversion = \"0.1.0\"\n")
-            .expect("write");
+        std::fs::write(
+            &cargo_toml,
+            "[package]\nname = \"my-app\"\nversion = \"0.1.0\"\n",
+        )
+        .expect("write");
 
         let original = std::env::current_dir().expect("cwd");
         std::env::set_current_dir(tmp.path()).expect("cd");
@@ -179,8 +182,7 @@ mod tests {
 
         let tmp = tempfile::TempDir::new().expect("temp dir");
         let cargo_toml = tmp.path().join("Cargo.toml");
-        std::fs::write(&cargo_toml, "[package]\nversion = \"0.1.0\"\n")
-            .expect("write");
+        std::fs::write(&cargo_toml, "[package]\nversion = \"0.1.0\"\n").expect("write");
 
         let original = std::env::current_dir().expect("cwd");
         std::env::set_current_dir(tmp.path()).expect("cd");

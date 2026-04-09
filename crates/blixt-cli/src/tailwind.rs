@@ -12,10 +12,22 @@ const DOWNLOAD_BASE: &str = "https://github.com/tailwindlabs/tailwindcss/release
 
 // SHA-256 checksums from https://github.com/tailwindlabs/tailwindcss/releases/tag/v4.1.8
 const TAILWIND_CHECKSUMS: &[(&str, &str)] = &[
-    ("macos-arm64", "19e52791d356dd59db68274ae36a5879bab0ce9dac23cc7b0f19fc7b7c1d37a2"),
-    ("macos-x64", "4a6cb260d75c4bdca0724fbcc3b23a5adb52715ad6d78595463c86128ca1c329"),
-    ("linux-arm64", "28a77d1e59b0e45b41683c1e3947621fdfe73f6895b05db7c34f63f3f4898e8d"),
-    ("linux-x64", "8f84ce810bdff225e599781d1e2daa82b4282229021c867a71b419f59f9aa836"),
+    (
+        "macos-arm64",
+        "19e52791d356dd59db68274ae36a5879bab0ce9dac23cc7b0f19fc7b7c1d37a2",
+    ),
+    (
+        "macos-x64",
+        "4a6cb260d75c4bdca0724fbcc3b23a5adb52715ad6d78595463c86128ca1c329",
+    ),
+    (
+        "linux-arm64",
+        "28a77d1e59b0e45b41683c1e3947621fdfe73f6895b05db7c34f63f3f4898e8d",
+    ),
+    (
+        "linux-x64",
+        "8f84ce810bdff225e599781d1e2daa82b4282229021c867a71b419f59f9aa836",
+    ),
 ];
 
 /// Detects the current platform and returns the Tailwind platform suffix.

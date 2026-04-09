@@ -60,9 +60,7 @@ pub async fn run() -> Result<(), String> {
 
 fn verify_blixt_project() -> Result<(), String> {
     if !Path::new("Cargo.toml").exists() {
-        return Err(
-            "No Cargo.toml found. Run this command from a Blixt project directory.".into(),
-        );
+        return Err("No Cargo.toml found. Run this command from a Blixt project directory.".into());
     }
     Ok(())
 }
@@ -73,7 +71,13 @@ fn spawn_tailwind(binary: &Path) -> Result<tokio::process::Child, String> {
         style("▸").cyan().bold()
     );
     Command::new(binary)
-        .args(["--input", "static/css/app.css", "--output", "static/css/output.css", "--watch"])
+        .args([
+            "--input",
+            "static/css/app.css",
+            "--output",
+            "static/css/output.css",
+            "--watch",
+        ])
         .kill_on_drop(true)
         .spawn()
         .map_err(|err| format!("Failed to start Tailwind watcher: {err}"))
@@ -103,7 +107,8 @@ fn start_file_watcher(tx: mpsc::Sender<()>) -> Result<notify::RecommendedWatcher
 
     for dir in ["src", "templates"] {
         if Path::new(dir).exists() {
-            watcher.watch(Path::new(dir), RecursiveMode::Recursive)
+            watcher
+                .watch(Path::new(dir), RecursiveMode::Recursive)
                 .map_err(|e| format!("Failed to watch {dir}: {e}"))?;
         }
     }

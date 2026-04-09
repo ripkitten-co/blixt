@@ -43,7 +43,8 @@ fn resolve_db_backend(db_arg: Option<DbBackend>) -> Result<DbBackend, String> {
 }
 
 const DATASTAR_VERSION: &str = "v1.0.0-RC.8";
-const DATASTAR_URL: &str = "https://raw.githubusercontent.com/starfederation/datastar/v1.0.0-RC.8/bundles/datastar.js";
+const DATASTAR_URL: &str =
+    "https://raw.githubusercontent.com/starfederation/datastar/v1.0.0-RC.8/bundles/datastar.js";
 
 /// Logo SVG embedded at compile time from the repo root logo.svg
 const LOGO_SVG: &str = include_str!("../../logo.svg");
@@ -126,17 +127,25 @@ fn write_file(project: &Path, relative: &str, content: &str) -> Result<(), Strin
 // --- Downloads ---
 
 async fn download_datastar(project: &Path) -> Result<(), String> {
-    println!("  {} Downloading Datastar {DATASTAR_VERSION}...", style("↓").dim());
+    println!(
+        "  {} Downloading Datastar {DATASTAR_VERSION}...",
+        style("↓").dim()
+    );
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| format!("HTTP client error: {e}"))?;
-    let resp = client.get(DATASTAR_URL).send().await
+    let resp = client
+        .get(DATASTAR_URL)
+        .send()
+        .await
         .map_err(|e| format!("Failed to download Datastar: {e}"))?;
     if !resp.status().is_success() {
         return Err(format!("Datastar download failed: HTTP {}", resp.status()));
     }
-    let body = resp.text().await
+    let body = resp
+        .text()
+        .await
         .map_err(|e| format!("Failed to read Datastar response: {e}"))?;
     write_file(project, "static/js/datastar.js", &body)
 }
@@ -147,10 +156,13 @@ async fn compile_tailwind(project: &Path) -> Result<(), String> {
     let input = project.join("static/css/app.css");
     let output = project.join("static/css/output.css");
     let status = tokio::process::Command::new(&binary)
-        .arg("--input").arg(&input)
-        .arg("--output").arg(&output)
+        .arg("--input")
+        .arg(&input)
+        .arg("--output")
+        .arg(&output)
         .arg("--minify")
-        .status().await
+        .status()
+        .await
         .map_err(|e| format!("Failed to run Tailwind: {e}"))?;
     if !status.success() {
         return Err("Tailwind compilation failed".into());
@@ -163,7 +175,9 @@ async fn compile_tailwind(project: &Path) -> Result<(), String> {
 fn write_cargo_toml(project: &Path, name: &str, db: DbBackend) -> Result<(), String> {
     let blixt_dep = match db {
         DbBackend::Postgres => r#"blixt = { git = "https://github.com/ripkitten-co/blixt" }"#,
-        DbBackend::Sqlite => r#"blixt = { git = "https://github.com/ripkitten-co/blixt", default-features = false, features = ["sqlite"] }"#,
+        DbBackend::Sqlite => {
+            r#"blixt = { git = "https://github.com/ripkitten-co/blixt", default-features = false, features = ["sqlite"] }"#
+        }
     };
     let content = format!(
         r#"[package]
@@ -217,7 +231,11 @@ mod controllers;
 }
 
 fn write_controllers_mod(project: &Path) -> Result<(), String> {
-    write_file(project, "src/controllers/mod.rs", "pub mod api;\npub mod home;\n")
+    write_file(
+        project,
+        "src/controllers/mod.rs",
+        "pub mod api;\npub mod home;\n",
+    )
 }
 
 fn write_home_controller(project: &Path, name: &str) -> Result<(), String> {
@@ -345,7 +363,8 @@ fn write_layout_template(project: &Path) -> Result<(), String> {
 }
 
 fn write_home_template(project: &Path, pascal_name: &str) -> Result<(), String> {
-    let content = format!(r##"
+    let content = format!(
+        r##"
 {{% extends "layouts/app.html" %}}
 {{% block title %}}{pascal_name}{{% endblock %}}
 {{% block description %}}A lightning-fast web application built with Blixt{{% endblock %}}
@@ -444,15 +463,22 @@ fn write_home_template(project: &Path, pascal_name: &str) -> Result<(), String> 
   </div>
 </main>
 {{% endblock %}}
-"##);
+"##
+    );
     write_file(project, "templates/pages/home.html", &content)
 }
 
 fn write_fragment_templates(project: &Path) -> Result<(), String> {
-    write_file(project, "templates/fragments/time.html",
-        r#"<div id="server-time" class="font-mono text-sm text-amber-400">{{ time }}</div>"#)?;
-    write_file(project, "templates/fragments/status.html",
-        r#"<div id="api-result" class="font-mono text-xs text-amber-400/80 leading-relaxed">{ "status": "{{ status }}", "uptime": {{ uptime }}, "time": "{{ timestamp }}" }</div>"#)?;
+    write_file(
+        project,
+        "templates/fragments/time.html",
+        r#"<div id="server-time" class="font-mono text-sm text-amber-400">{{ time }}</div>"#,
+    )?;
+    write_file(
+        project,
+        "templates/fragments/status.html",
+        r#"<div id="api-result" class="font-mono text-xs text-amber-400/80 leading-relaxed">{ "status": "{{ status }}", "uptime": {{ uptime }}, "time": "{{ timestamp }}" }</div>"#,
+    )?;
     Ok(())
 }
 
@@ -485,13 +511,15 @@ fn write_env_example(project: &Path, db: DbBackend) -> Result<(), String> {
         DbBackend::Postgres => "DATABASE_URL=postgres://localhost/my_app",
         DbBackend::Sqlite => "DATABASE_URL=sqlite://data.db",
     };
-    let content = format!("\
+    let content = format!(
+        "\
 BLIXT_ENV=development
 HOST=127.0.0.1
 PORT=3000
 {db_url}
 JWT_SECRET=change-me-to-a-random-secret-at-least-32-chars
-");
+"
+    );
     write_file(project, ".env.example", &content)
 }
 
@@ -524,7 +552,9 @@ mod tests {
 
     fn temp_project_dir(suffix: &str) -> PathBuf {
         let dir = std::env::temp_dir().join("blixt-test-new").join(format!(
-            "{}_{}", suffix, std::process::id()
+            "{}_{}",
+            suffix,
+            std::process::id()
         ));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("create temp dir");
@@ -564,21 +594,29 @@ mod tests {
             .expect("read layout");
         assert!(!layout.contains("cdn"), "Layout must not reference any CDN");
 
-        let main = fs::read_to_string(project_dir.join("src/main.rs"))
-            .expect("read main.rs");
-        assert!(main.contains("/api/status"), "main.rs should register API route");
-        assert!(main.contains("/fragments/time"), "main.rs should register SSE route");
+        let main = fs::read_to_string(project_dir.join("src/main.rs")).expect("read main.rs");
+        assert!(
+            main.contains("/api/status"),
+            "main.rs should register API route"
+        );
+        assert!(
+            main.contains("/fragments/time"),
+            "main.rs should register SSE route"
+        );
 
-        let cargo_toml = fs::read_to_string(project_dir.join("Cargo.toml"))
-            .expect("read Cargo.toml");
+        let cargo_toml =
+            fs::read_to_string(project_dir.join("Cargo.toml")).expect("read Cargo.toml");
         assert!(
             !cargo_toml.contains("default-features = false"),
             "postgres project should use default features"
         );
 
-        let env_example = fs::read_to_string(project_dir.join(".env.example"))
-            .expect("read .env.example");
-        assert!(env_example.contains("postgres://"), "should use postgres URL");
+        let env_example =
+            fs::read_to_string(project_dir.join(".env.example")).expect("read .env.example");
+        assert!(
+            env_example.contains("postgres://"),
+            "should use postgres URL"
+        );
 
         let _ = fs::remove_dir_all(&base);
     }
@@ -593,7 +631,12 @@ mod tests {
         let result = run_in_sync(&base, project_name, DbBackend::Postgres);
 
         assert!(result.is_err());
-        assert!(result.err().expect("should error").contains("already exists"));
+        assert!(
+            result
+                .err()
+                .expect("should error")
+                .contains("already exists")
+        );
 
         let _ = fs::remove_dir_all(&base);
     }
@@ -607,8 +650,8 @@ mod tests {
         let result = run_in_sync(&base, project_name, DbBackend::Sqlite);
         assert!(result.is_ok(), "run_in_sync() failed: {:?}", result.err());
 
-        let cargo_toml = fs::read_to_string(project_dir.join("Cargo.toml"))
-            .expect("read Cargo.toml");
+        let cargo_toml =
+            fs::read_to_string(project_dir.join("Cargo.toml")).expect("read Cargo.toml");
         assert!(
             cargo_toml.contains(r#"features = ["sqlite"]"#),
             "should use sqlite feature"
@@ -618,8 +661,8 @@ mod tests {
             "should not use postgres feature"
         );
 
-        let env_example = fs::read_to_string(project_dir.join(".env.example"))
-            .expect("read .env.example");
+        let env_example =
+            fs::read_to_string(project_dir.join(".env.example")).expect("read .env.example");
         assert!(env_example.contains("sqlite://"), "should use sqlite URL");
 
         let _ = fs::remove_dir_all(&base);
