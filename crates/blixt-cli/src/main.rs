@@ -2,6 +2,9 @@ mod commands;
 mod tailwind;
 mod validate;
 
+#[cfg(test)]
+mod test_helpers;
+
 use clap::{Parser, Subcommand};
 use console::style;
 
