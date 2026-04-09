@@ -37,4 +37,34 @@ mod tests {
             "expected missing DATABASE_URL error, got: {msg}"
         );
     }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn create_pool_connects_with_valid_url() {
+        let config = Config {
+            host: "127.0.0.1".to_string(),
+            port: 3000,
+            blixt_env: Environment::Test,
+            database_url: Some(secrecy::SecretString::from("sqlite::memory:".to_string())),
+            jwt_secret: None,
+        };
+
+        let result = create_pool(&config).await;
+        assert!(result.is_ok(), "pool should connect: {:?}", result.err());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn create_pool_fails_with_invalid_url() {
+        let config = Config {
+            host: "127.0.0.1".to_string(),
+            port: 3000,
+            blixt_env: Environment::Test,
+            database_url: Some(secrecy::SecretString::from("not-a-valid-url".to_string())),
+            jwt_secret: None,
+        };
+
+        let result = create_pool(&config).await;
+        assert!(result.is_err());
+    }
 }
