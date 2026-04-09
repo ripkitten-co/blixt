@@ -11,6 +11,8 @@ pub async fn create_pool(config: &Config) -> Result<SqlitePool> {
 
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
+        .acquire_timeout(std::time::Duration::from_secs(5))
+        .idle_timeout(std::time::Duration::from_secs(300))
         .connect(url)
         .await?;
 

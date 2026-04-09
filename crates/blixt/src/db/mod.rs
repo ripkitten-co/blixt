@@ -4,13 +4,13 @@ mod postgres;
 mod sqlite;
 
 #[cfg(feature = "postgres")]
-pub use self::postgres::*;
+pub use self::postgres::create_pool;
 #[cfg(feature = "sqlite")]
-pub use self::sqlite::*;
+pub use self::sqlite::create_pool;
 
-#[cfg(feature = "postgres")]
+#[cfg(all(feature = "postgres", not(feature = "sqlite")))]
 pub type DbPool = sqlx::PgPool;
-#[cfg(feature = "sqlite")]
+#[cfg(all(feature = "sqlite", not(feature = "postgres")))]
 pub type DbPool = sqlx::SqlitePool;
 
 #[cfg(test)]
