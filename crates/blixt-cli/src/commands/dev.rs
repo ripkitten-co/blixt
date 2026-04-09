@@ -142,3 +142,59 @@ fn kill_child(child: &mut tokio::process::Child, label: &str) {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn modify_event(path: &str) -> notify::Event {
+        notify::Event {
+            kind: EventKind::Modify(notify::event::ModifyKind::Data(
+                notify::event::DataChange::Content,
+            )),
+            paths: vec![PathBuf::from(path)],
+            attrs: Default::default(),
+        }
+    }
+
+    #[test]
+    fn relevant_change_accepts_rust_files() {
+        assert!(is_relevant_change(&modify_event("src/main.rs")));
+    }
+
+    #[test]
+    fn relevant_change_accepts_html_files() {
+        assert!(is_relevant_change(&modify_event("templates/home.html")));
+    }
+
+    #[test]
+    fn relevant_change_accepts_toml_files() {
+        assert!(is_relevant_change(&modify_event("Cargo.toml")));
+    }
+
+    #[test]
+    fn relevant_change_ignores_css_files() {
+        assert!(!is_relevant_change(&modify_event("static/css/output.css")));
+    }
+
+    #[test]
+    fn relevant_change_ignores_delete_events() {
+        let event = notify::Event {
+            kind: EventKind::Remove(notify::event::RemoveKind::File),
+            paths: vec![PathBuf::from("src/main.rs")],
+            attrs: Default::default(),
+        };
+        assert!(!is_relevant_change(&event));
+    }
+
+    #[test]
+    fn relevant_change_accepts_create_events() {
+        let event = notify::Event {
+            kind: EventKind::Create(notify::event::CreateKind::File),
+            paths: vec![PathBuf::from("src/new_file.rs")],
+            attrs: Default::default(),
+        };
+        assert!(is_relevant_change(&event));
+    }
+}
