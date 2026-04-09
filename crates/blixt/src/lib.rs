@@ -17,6 +17,9 @@ pub mod mailer;
 pub mod middleware;
 pub mod redact;
 
+#[cfg(test)]
+pub(crate) mod test_helpers;
+
 pub mod prelude {
     pub use crate::app::App;
     pub use crate::auth::{AuthUser, Claims, OptionalAuth};
