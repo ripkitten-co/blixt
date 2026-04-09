@@ -111,19 +111,10 @@ fn is_dotfile_path(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_helpers::test_config;
     use axum::body::Body;
     use axum::routing::get;
     use tower::ServiceExt;
-
-    fn test_config() -> Config {
-        Config {
-            host: "127.0.0.1".to_string(),
-            port: 0,
-            blixt_env: crate::config::Environment::Test,
-            database_url: None,
-            jwt_secret: None,
-        }
-    }
 
     fn build_test_app(static_dir: Option<&str>) -> Router {
         let routes = Router::new().route("/health", get(|| async { "ok" }));
