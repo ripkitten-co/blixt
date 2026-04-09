@@ -1,9 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/logo-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset=".github/logo-light.svg">
-    <img alt="Blixt" src=".github/logo-dark.svg" width="80">
-  </picture>
+  <img alt="Blixt" src="crates/blixt-cli/logo.svg" width="80">
 </p>
 
 <h3 align="center">Blixt</h3>
