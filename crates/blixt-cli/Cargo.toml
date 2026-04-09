@@ -10,7 +10,7 @@ name = "blixt"
 path = "src/main.rs"
 
 [dependencies]
-blixt = { path = "../blixt" }
+blixt = { version = "0.1.0", path = "../blixt" }
 clap.workspace = true
 tokio.workspace = true
 console.workspace = true
