@@ -1,0 +1,27 @@
+[package]
+name = "blixt"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Blixt core framework — compile-time templates, type-safe SQL, Datastar SSE integration"
+
+[dependencies]
+axum.workspace = true
+futures-core.workspace = true
+tokio.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+askama.workspace = true
+sqlx.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+argon2.workspace = true
+jsonwebtoken.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+dotenvy.workspace = true
+thiserror.workspace = true
+lettre.workspace = true
+notify.workspace = true
+secrecy = { version = "0.10.3", features = ["serde"] }
+uuid = { version = "1.23.0", features = ["v7", "serde"] }

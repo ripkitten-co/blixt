@@ -1,0 +1,32 @@
+[package]
+name = "blixt-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Blixt CLI — project scaffolding, code generation, dev server, and build tools"
+
+[[bin]]
+name = "blixt"
+path = "src/main.rs"
+
+[dependencies]
+blixt = { path = "../blixt" }
+clap.workspace = true
+tokio.workspace = true
+console.workspace = true
+dialoguer.workspace = true
+indicatif.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+regex = "1.12.3"
+sha2 = "0.10"
+dirs = "6"
+chrono = "0.4"
+sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "sqlite", "migrate"] }
+dotenvy.workspace = true
+notify.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
