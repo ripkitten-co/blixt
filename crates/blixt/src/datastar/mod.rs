@@ -1,3 +1,4 @@
+/// SSE response types for DOM patching and signal updates.
 pub mod responses;
 mod signals;
 

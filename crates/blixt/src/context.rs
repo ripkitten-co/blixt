@@ -4,12 +4,16 @@ use crate::config::Config;
 use crate::db::DbPool;
 
 #[derive(Clone)]
+/// Shared state passed to route handlers via Axum's `State` extractor.
 pub struct AppContext {
+    /// Database connection pool.
     pub db: DbPool,
+    /// Application configuration.
     pub config: Arc<Config>,
 }
 
 impl AppContext {
+    /// Creates a new context from a connection pool and configuration.
     pub fn new(db: DbPool, config: Config) -> Self {
         Self {
             db,
