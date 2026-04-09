@@ -11,11 +11,17 @@ use std::fmt;
 /// All fields are required. Use [`MailerConfig::from_env`] to load from
 /// environment variables, or construct manually for testing.
 pub struct MailerConfig {
+    /// SMTP server hostname.
     pub smtp_host: String,
+    /// SMTP server port (typically 587 for STARTTLS).
     pub smtp_port: u16,
+    /// SMTP authentication username.
     pub smtp_user: String,
+    /// SMTP authentication password.
     pub smtp_password: SecretString,
+    /// Display name for the `From` header.
     pub from_name: String,
+    /// Email address for the `From` header.
     pub from_email: String,
 }
 

@@ -2,31 +2,44 @@ use axum::http::StatusCode;
 use axum::http::header::RETRY_AFTER;
 use axum::response::{IntoResponse, Response};
 
+/// Blixt result type using [`Error`].
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Unified error type with HTTP status code mapping.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// IO error.
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
+    /// Database error.
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
 
+    /// 404 Not Found.
     #[error("Not found")]
     NotFound,
 
+    /// 401 Unauthorized.
     #[error("Unauthorized")]
     Unauthorized,
 
+    /// 403 Forbidden.
     #[error("Forbidden")]
     Forbidden,
 
+    /// 400 Bad Request with a user-visible message.
     #[error("Bad request: {0}")]
     BadRequest(String),
 
+    /// 429 Too Many Requests.
     #[error("Rate limited")]
-    RateLimited { retry_after_secs: Option<u64> },
+    RateLimited {
+        /// Seconds until the client should retry, sent as `Retry-After`.
+        retry_after_secs: Option<u64>,
+    },
 
+    /// Catch-all for internal failures (logged, never exposed to clients).
     #[error("Internal error: {0}")]
     Internal(String),
 }
