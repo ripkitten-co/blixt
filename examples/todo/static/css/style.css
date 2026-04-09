@@ -1,0 +1,109 @@
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: system-ui, -apple-system, sans-serif;
+    background: #111;
+    color: #e5e5e5;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 3rem 1rem;
+}
+
+main {
+    width: 100%;
+    max-width: 480px;
+}
+
+h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: 1.5rem;
+}
+
+form {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 2rem;
+}
+
+input[type="text"] {
+    flex: 1;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #333;
+    border-radius: 6px;
+    background: #1a1a1a;
+    color: #e5e5e5;
+    font-size: 0.875rem;
+}
+
+input[type="text"]::placeholder {
+    color: #666;
+}
+
+input[type="text"]:focus {
+    outline: none;
+    border-color: #555;
+}
+
+button {
+    padding: 0.5rem 1rem;
+    border: 1px solid #333;
+    border-radius: 6px;
+    background: #222;
+    color: #ccc;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+button:hover {
+    background: #2a2a2a;
+    border-color: #555;
+}
+
+ul {
+    list-style: none;
+}
+
+.todo-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid #222;
+}
+
+.todo-item.completed .todo-title {
+    text-decoration: line-through;
+    color: #666;
+}
+
+.todo-actions {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.todo-actions button {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    border: none;
+    background: transparent;
+    color: #888;
+}
+
+.todo-actions button:hover {
+    color: #e5e5e5;
+}
+
+.empty {
+    color: #555;
+    font-size: 0.875rem;
+    padding: 1rem 0;
+}
