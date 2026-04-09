@@ -26,6 +26,9 @@ notify.workspace = true
 secrecy = { version = "0.10.3", features = ["serde"] }
 uuid = { version = "1.23.0", features = ["v7", "serde"] }
 
+[dev-dependencies]
+tempfile = "3"
+
 [features]
 default = ["postgres"]
 postgres = ["sqlx/postgres"]

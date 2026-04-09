@@ -22,6 +22,7 @@ pub mod prelude {
     pub use crate::auth::{AuthUser, Claims, OptionalAuth};
     pub use crate::config::{Config, Environment};
     pub use crate::context::AppContext;
+    pub use crate::db::DbPool;
     pub use crate::error::{Error, Result};
     pub use crate::jobs::{Job, JobRunner, job_fn};
     pub use crate::logging::init_tracing;
