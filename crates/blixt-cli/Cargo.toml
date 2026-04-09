@@ -28,7 +28,7 @@ serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 regex = "1.12.3"
-sha2 = "0.10"
+sha2 = "0.11"
 dirs = "6"
 chrono = "0.4"
 sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "sqlite", "migrate"] }
