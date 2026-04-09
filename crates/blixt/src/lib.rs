@@ -1,4 +1,4 @@
-#[cfg(all(feature = "postgres", feature = "sqlite"))]
+#[cfg(all(feature = "postgres", feature = "sqlite", not(docsrs)))]
 compile_error!("Enable exactly one database backend: `postgres` or `sqlite`, not both.");
 
 #[cfg(not(any(feature = "postgres", feature = "sqlite")))]

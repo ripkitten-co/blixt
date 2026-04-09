@@ -3,7 +3,14 @@ name = "blixt"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
 description = "Blixt core framework — compile-time templates, type-safe SQL, Datastar SSE integration"
+documentation = "https://docs.rs/blixt"
+readme = "../../README.md"
+keywords = ["web-framework", "axum", "sse", "datastar", "askama"]
+categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 axum.workspace = true
@@ -33,3 +40,7 @@ tempfile = "3"
 default = ["postgres"]
 postgres = ["sqlx/postgres"]
 sqlite = ["sqlx/sqlite"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

@@ -3,7 +3,14 @@ name = "blixt-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
 description = "Blixt CLI — project scaffolding, code generation, dev server, and build tools"
+documentation = "https://docs.rs/blixt-cli"
+readme = "../../README.md"
+keywords = ["web-framework", "cli", "scaffolding", "code-generation", "rust"]
+categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
 name = "blixt"
