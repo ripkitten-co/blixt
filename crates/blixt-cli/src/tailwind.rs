@@ -4,6 +4,16 @@ use std::path::{Path, PathBuf};
 use indicatif::{ProgressBar, ProgressStyle};
 use sha2::{Digest, Sha256};
 
+fn hex_encode(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .fold(String::with_capacity(bytes.len() * 2), |mut s, b| {
+            use std::fmt::Write;
+            let _ = write!(s, "{b:02x}");
+            s
+        })
+}
+
 const TAILWIND_VERSION: &str = "4.1.8";
 
 /// Hardcoded download base URL. Must ONLY point to the official GitHub releases.
@@ -77,7 +87,7 @@ pub fn verify_checksum(path: &Path, expected_hex: &str) -> Result<bool, String> 
     let contents =
         fs::read(path).map_err(|err| format!("Failed to read file for checksum: {err}"))?;
     let digest = Sha256::digest(&contents);
-    let actual_hex = format!("{digest:x}");
+    let actual_hex = hex_encode(&digest);
     Ok(actual_hex == expected_hex.to_lowercase())
 }
 
@@ -204,7 +214,7 @@ fn verify_after_download(path: &Path, expected: &str) -> Result<(), String> {
 
     let contents =
         fs::read(path).map_err(|err| format!("Failed to read downloaded file: {err}"))?;
-    let actual = format!("{:x}", Sha256::digest(&contents));
+    let actual = hex_encode(&Sha256::digest(&contents));
 
     let _ = fs::remove_file(path);
 
