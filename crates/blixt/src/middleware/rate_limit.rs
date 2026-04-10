@@ -18,6 +18,7 @@ pub struct RateLimiter {
     state: Arc<Mutex<HashMap<IpAddr, Bucket>>>,
     max_requests: f64,
     window_secs: f64,
+    max_entries: usize,
 }
 
 #[derive(Debug)]
@@ -33,7 +34,14 @@ impl RateLimiter {
             state: Arc::new(Mutex::new(HashMap::new())),
             max_requests: f64::from(max_requests),
             window_secs: window_secs as f64,
+            max_entries: 10_000,
         }
+    }
+
+    /// Override the maximum number of tracked IPs before eviction kicks in.
+    pub fn with_max_entries(mut self, max_entries: usize) -> Self {
+        self.max_entries = max_entries;
+        self
     }
 
     /// Default rate limiter: 100 requests per 60 seconds.
@@ -56,6 +64,11 @@ impl RateLimiter {
         });
 
         let now = Instant::now();
+
+        if state.len() > self.max_entries {
+            self.evict_stale(&mut state, now);
+        }
+
         let bucket = state.entry(ip).or_insert_with(|| Bucket {
             tokens: self.max_requests,
             last_check: now,
@@ -68,6 +81,17 @@ impl RateLimiter {
             true
         } else {
             false
+        }
+    }
+
+    /// Removes entries that haven't been seen in over 2x the window duration.
+    fn evict_stale(&self, state: &mut HashMap<IpAddr, Bucket>, now: Instant) {
+        let stale_threshold = std::time::Duration::from_secs_f64(self.window_secs * 2.0);
+        let before = state.len();
+        state.retain(|_, bucket| now.duration_since(bucket.last_check) < stale_threshold);
+        let evicted = before - state.len();
+        if evicted > 0 {
+            tracing::info!(evicted, remaining = state.len(), "rate limiter eviction pass");
         }
     }
 
@@ -255,5 +279,54 @@ mod tests {
 
         let ip = extract_client_ip(&request, None);
         assert_eq!(ip, IpAddr::V4(Ipv4Addr::LOCALHOST));
+    }
+
+    #[test]
+    fn evicts_stale_entries_when_over_capacity() {
+        let limiter = RateLimiter::new(5, 1).with_max_entries(3);
+
+        // Populate 5 IPs
+        for i in 0..5u8 {
+            let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 1, i));
+            limiter.check(ip);
+        }
+
+        {
+            let state = limiter.state.lock().expect("lock");
+            assert_eq!(state.len(), 5, "should have 5 entries before eviction");
+        }
+
+        // Age all existing entries past the stale threshold (window * 2 = 2s)
+        {
+            let mut state = limiter.state.lock().expect("lock");
+            for bucket in state.values_mut() {
+                bucket.last_check -= std::time::Duration::from_secs(3);
+            }
+        }
+
+        // Next check triggers eviction because len (5) > max_entries (3)
+        let new_ip = IpAddr::V4(Ipv4Addr::new(10, 0, 2, 1));
+        limiter.check(new_ip);
+
+        let state = limiter.state.lock().expect("lock");
+        assert_eq!(state.len(), 1, "stale entries should have been evicted");
+    }
+
+    #[test]
+    fn does_not_evict_active_entries() {
+        let limiter = RateLimiter::new(5, 1).with_max_entries(2);
+
+        // Populate 3 IPs with recent activity
+        for i in 0..3u8 {
+            let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 3, i));
+            limiter.check(ip);
+        }
+
+        // All entries are fresh, so eviction runs but removes nothing
+        let trigger_ip = IpAddr::V4(Ipv4Addr::new(10, 0, 3, 99));
+        limiter.check(trigger_ip);
+
+        let state = limiter.state.lock().expect("lock");
+        assert_eq!(state.len(), 4, "active entries should not be evicted");
     }
 }
