@@ -345,6 +345,7 @@ dependencies = [
  "jsonwebtoken",
  "lettre",
  "notify",
+ "regex",
  "secrecy",
  "serde",
  "serde_json",
