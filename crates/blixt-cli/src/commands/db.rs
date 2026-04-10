@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use console::style;
-use sqlx::PgPool;
+use sqlx::AnyPool;
 use sqlx::migrate::Migrator;
 
 /// Runs all pending migrations against the database.
@@ -77,9 +77,10 @@ fn read_database_url() -> Result<String, String> {
 }
 
 /// Connects to the database using DATABASE_URL from the environment.
-async fn connect_to_database() -> Result<PgPool, String> {
+async fn connect_to_database() -> Result<AnyPool, String> {
     let url = read_database_url()?;
-    PgPool::connect(&url)
+    sqlx::any::install_default_drivers();
+    AnyPool::connect(&url)
         .await
         .map_err(|err| format!("Failed to connect to database: {err}"))
 }
@@ -98,7 +99,7 @@ async fn load_migrator() -> Result<Migrator, String> {
 }
 
 /// Counts the number of applied migrations by querying the database.
-async fn count_applied(pool: &PgPool) -> u64 {
+async fn count_applied(pool: &AnyPool) -> u64 {
     let row: Option<(i64,)> = sqlx::query_as("SELECT COUNT(*) FROM _sqlx_migrations")
         .fetch_optional(pool)
         .await
@@ -109,7 +110,7 @@ async fn count_applied(pool: &PgPool) -> u64 {
 }
 
 /// Prints each migration with its applied/pending status.
-async fn print_migration_table(pool: &PgPool, migrator: &Migrator) -> Result<(), String> {
+async fn print_migration_table(pool: &AnyPool, migrator: &Migrator) -> Result<(), String> {
     let applied = fetch_applied_versions(pool).await;
 
     for migration in migrator.iter() {
@@ -131,11 +132,28 @@ async fn print_migration_table(pool: &PgPool, migrator: &Migrator) -> Result<(),
 }
 
 /// Fetches the list of applied migration versions from the database.
-async fn fetch_applied_versions(pool: &PgPool) -> Vec<i64> {
+async fn fetch_applied_versions(pool: &AnyPool) -> Vec<i64> {
     let rows: Vec<(i64,)> = sqlx::query_as("SELECT version FROM _sqlx_migrations ORDER BY version")
         .fetch_all(pool)
         .await
         .unwrap_or_default();
 
     rows.into_iter().map(|(version,)| version).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_database_url_returns_error_when_unset() {
+        let original = std::env::var("DATABASE_URL").ok();
+        unsafe { std::env::remove_var("DATABASE_URL") };
+        let result = read_database_url();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("DATABASE_URL"));
+        if let Some(val) = original {
+            unsafe { std::env::set_var("DATABASE_URL", val) };
+        }
+    }
 }
