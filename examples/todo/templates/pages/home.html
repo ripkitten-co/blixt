@@ -1,0 +1,39 @@
+{% extends "layouts/app.html" %}
+{% block title %}Todos{% endblock %}
+{% block description %}A todo app built with Blixt{% endblock %}
+{% block content %}
+<main class="min-h-screen flex justify-center px-4 pt-16 pb-12 sm:pt-24">
+  <div class="w-full max-w-sm">
+
+    <div class="flex items-center gap-3 mb-8">
+      <img src="/static/logo.svg" alt="Blixt" class="w-5 h-8">
+      <h1 class="text-[13px] font-medium tracking-[0.2em] uppercase text-zinc-400">todos</h1>
+    </div>
+
+    <form
+      class="flex gap-2 mb-6"
+      data-signals:title="''"
+      data-on:submit="@post('/todos')"
+    >
+      <input
+        type="text"
+        data-bind:title
+        placeholder="What needs to be done?"
+        autocomplete="off"
+        class="flex-1 min-w-0 px-3 py-2.5 text-[13px] rounded-lg border border-zinc-800/80
+               bg-zinc-900/40 text-zinc-200 placeholder-zinc-600
+               focus:outline-none focus:border-zinc-700 transition-colors"
+      >
+      <button
+        type="submit"
+        class="shrink-0 px-4 py-2.5 text-[13px] rounded-lg border border-zinc-800/80
+               bg-zinc-900/40 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700
+               transition-colors cursor-pointer"
+      >Add</button>
+    </form>
+
+    {% include "fragments/todo_list.html" %}
+
+  </div>
+</main>
+{% endblock %}

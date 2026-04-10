@@ -1,0 +1,13 @@
+<div id="todo-list">
+{% if todos.is_empty() %}
+  <div class="border border-zinc-800/80 rounded-lg bg-zinc-900/40 px-4 py-8">
+    <p class="text-zinc-600 text-[13px] text-center">No todos yet.</p>
+  </div>
+{% else %}
+  <div class="border border-zinc-800/80 rounded-lg bg-zinc-900/40 divide-y divide-zinc-800/60">
+  {% for todo in todos %}
+    {% include "fragments/todo_item.html" %}
+  {% endfor %}
+  </div>
+{% endif %}
+</div>

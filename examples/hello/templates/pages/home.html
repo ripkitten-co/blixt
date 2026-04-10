@@ -1,0 +1,11 @@
+{% extends "layouts/app.html" %}
+{% block title %}Hello{% endblock %}
+{% block content %}
+<main class="min-h-screen flex items-center justify-center">
+  <div class="text-center">
+    <img src="/static/logo.svg" alt="Blixt" class="w-10 h-16 mx-auto mb-6">
+    <h1 class="text-3xl font-bold text-zinc-100">{{ greeting }}</h1>
+    <p class="mt-3 text-zinc-500 text-sm font-mono">edit src/main.rs to get started</p>
+  </div>
+</main>
+{% endblock %}

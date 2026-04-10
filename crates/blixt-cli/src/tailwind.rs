@@ -14,29 +14,33 @@ fn hex_encode(bytes: &[u8]) -> String {
         })
 }
 
-const TAILWIND_VERSION: &str = "4.1.8";
+const TAILWIND_VERSION: &str = "4.2.2";
 
 /// Hardcoded download base URL. Must ONLY point to the official GitHub releases.
 /// Do not accept download URLs from configuration or environment variables.
 const DOWNLOAD_BASE: &str = "https://github.com/tailwindlabs/tailwindcss/releases/download";
 
-// SHA-256 checksums from https://github.com/tailwindlabs/tailwindcss/releases/tag/v4.1.8
+// SHA-256 checksums from https://github.com/tailwindlabs/tailwindcss/releases/tag/v4.2.2
 const TAILWIND_CHECKSUMS: &[(&str, &str)] = &[
     (
         "macos-arm64",
-        "19e52791d356dd59db68274ae36a5879bab0ce9dac23cc7b0f19fc7b7c1d37a2",
+        "2ce66b7c8101ef1245a07d1e7abb4beb35bf512fd3beecba1cdfb327580d1252",
     ),
     (
         "macos-x64",
-        "4a6cb260d75c4bdca0724fbcc3b23a5adb52715ad6d78595463c86128ca1c329",
+        "98e34c6abd00a75a74ea2d20acf9e284241d13023133076d220c6f3ca419d920",
     ),
     (
         "linux-arm64",
-        "28a77d1e59b0e45b41683c1e3947621fdfe73f6895b05db7c34f63f3f4898e8d",
+        "ad627e77b496cccada4a6e26eafff698ef0829081e575a4baf3af8524bb00747",
     ),
     (
         "linux-x64",
-        "8f84ce810bdff225e599781d1e2daa82b4282229021c867a71b419f59f9aa836",
+        "4ab84f2b496c402d3ec4fd25e0e5559fe1184d886dadae8fb4438344ec044c22",
+    ),
+    (
+        "windows-x64",
+        "bf500d4be2109250d857a8ff161abdb995b6bf5e9262d279a95b74a887ca51d7",
     ),
 ];
 
@@ -47,6 +51,7 @@ fn detect_platform() -> Result<&'static str, String> {
         ("macos", "x86_64") => Ok("macos-x64"),
         ("linux", "aarch64") => Ok("linux-arm64"),
         ("linux", "x86_64") => Ok("linux-x64"),
+        ("windows", "x86_64") => Ok("windows-x64"),
         (os, arch) => Err(format!("Unsupported platform: {os}-{arch}")),
     }
 }
@@ -70,13 +75,23 @@ fn cache_dir() -> Result<PathBuf, String> {
 /// Builds the full cache path for a specific version and platform.
 fn cached_binary_path(platform: &str) -> Result<PathBuf, String> {
     let dir = cache_dir()?;
-    let filename = format!("tailwindcss-v{TAILWIND_VERSION}-{platform}");
+    let ext = if platform.starts_with("windows") {
+        ".exe"
+    } else {
+        ""
+    };
+    let filename = format!("tailwindcss-v{TAILWIND_VERSION}-{platform}{ext}");
     Ok(dir.join(filename))
 }
 
 /// Builds the download URL for a specific platform.
 fn download_url(platform: &str) -> String {
-    format!("{DOWNLOAD_BASE}/v{TAILWIND_VERSION}/tailwindcss-{platform}")
+    let ext = if platform.starts_with("windows") {
+        ".exe"
+    } else {
+        ""
+    };
+    format!("{DOWNLOAD_BASE}/v{TAILWIND_VERSION}/tailwindcss-{platform}{ext}")
 }
 
 /// Verifies that the SHA-256 checksum of a file matches the expected hex digest.
@@ -268,7 +283,7 @@ mod tests {
         // On other platforms, it should return a descriptive error.
         match result {
             Ok(platform) => {
-                let valid = ["macos-arm64", "macos-x64", "linux-arm64", "linux-x64"];
+                let valid = ["macos-arm64", "macos-x64", "linux-arm64", "linux-x64", "windows-x64"];
                 assert!(valid.contains(&platform), "Unexpected platform: {platform}");
             }
             Err(msg) => {
@@ -377,7 +392,7 @@ mod tests {
 
     #[test]
     fn expected_checksum_errors_for_unknown_platform() {
-        let result = expected_checksum("windows-x64");
+        let result = expected_checksum("freebsd-x64");
         assert!(result.is_err());
         assert!(
             result
