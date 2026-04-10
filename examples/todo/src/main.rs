@@ -1,7 +1,5 @@
-use axum::http::header;
-use axum::response::{Html, Response};
-use blixt::datastar::DatastarSignals;
 use blixt::prelude::*;
+use serde_json::json;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct Todo {
@@ -22,97 +20,57 @@ struct TodoListFragment {
     todos: Vec<Todo>,
 }
 
-fn sse_patch(html: &str) -> Response {
-    let oneline: String = html.trim().lines().map(str::trim).collect();
-    let body = format!("event: datastar-patch-elements\ndata: elements {oneline}\n\n");
-    (
-        [
-            (header::CONTENT_TYPE, "text/event-stream"),
-            (header::CACHE_CONTROL, "no-cache"),
-        ],
-        body,
+async fn fetch_todos(pool: &DbPool) -> Result<Vec<Todo>> {
+    Ok(
+        sqlx::query_as::<_, Todo>("SELECT id, title, completed FROM todos ORDER BY id DESC")
+            .fetch_all(pool)
+            .await?,
     )
-        .into_response()
 }
 
-fn sse_signals(json: &str) -> Response {
-    let body = format!("event: datastar-patch-signals\ndata: signals {json}\n\n");
-    (
-        [
-            (header::CONTENT_TYPE, "text/event-stream"),
-            (header::CACHE_CONTROL, "no-cache"),
-        ],
-        body,
-    )
-        .into_response()
-}
-
-async fn fetch_todos(pool: &DbPool) -> Vec<Todo> {
-    sqlx::query_as::<_, Todo>("SELECT id, title, completed FROM todos ORDER BY id DESC")
-        .fetch_all(pool)
-        .await
-        .unwrap_or_default()
-}
-
-async fn index(State(ctx): State<AppContext>) -> impl IntoResponse {
-    let todos = fetch_todos(&ctx.db).await;
-    Html(HomePage { todos }.render().unwrap_or_default())
+async fn index(State(ctx): State<AppContext>) -> Result<impl IntoResponse> {
+    let todos = fetch_todos(&ctx.db).await?;
+    let html = HomePage { todos }
+        .render()
+        .map_err(|e| Error::Internal(e.to_string()))?;
+    Ok(Html(html))
 }
 
 async fn create(
     State(ctx): State<AppContext>,
     signals: DatastarSignals,
-) -> Response {
-    let title: String = signals.get("title").unwrap_or_default();
-    let title = title.trim();
+) -> Result<impl IntoResponse> {
+    let title: String = signals.get("title")?;
+    let title = title.trim().to_owned();
     if title.is_empty() {
-        return sse_signals(r#"{"title":""}"#);
+        return SseResponse::new().signals(&json!({"title": ""}));
     }
-
     sqlx::query("INSERT INTO todos (title) VALUES (?)")
-        .bind(title)
+        .bind(&title)
         .execute(&ctx.db)
-        .await
-        .ok();
-
-    let todos = fetch_todos(&ctx.db).await;
-    let list_html = TodoListFragment { todos }.render().unwrap_or_default();
-    let list_patch = {
-        let oneline: String = list_html.trim().lines().map(str::trim).collect();
-        format!("event: datastar-patch-elements\ndata: elements {oneline}\n\n")
-    };
-    let signals_patch = "event: datastar-patch-signals\ndata: signals {\"title\":\"\"}\n\n";
-
-    (
-        [
-            (header::CONTENT_TYPE, "text/event-stream"),
-            (header::CACHE_CONTROL, "no-cache"),
-        ],
-        format!("{list_patch}{signals_patch}"),
-    )
-        .into_response()
+        .await?;
+    let todos = fetch_todos(&ctx.db).await?;
+    SseResponse::new()
+        .patch(TodoListFragment { todos })?
+        .signals(&json!({"title": ""}))
 }
 
-async fn toggle(State(ctx): State<AppContext>, Path(id): Path<i64>) -> Response {
+async fn toggle(State(ctx): State<AppContext>, Path(id): Path<i64>) -> Result<impl IntoResponse> {
     sqlx::query("UPDATE todos SET completed = NOT completed WHERE id = ?")
         .bind(id)
         .execute(&ctx.db)
-        .await
-        .ok();
-
-    let todos = fetch_todos(&ctx.db).await;
-    sse_patch(&TodoListFragment { todos }.render().unwrap_or_default())
+        .await?;
+    let todos = fetch_todos(&ctx.db).await?;
+    SseFragment::new(TodoListFragment { todos })
 }
 
-async fn remove(State(ctx): State<AppContext>, Path(id): Path<i64>) -> Response {
+async fn remove(State(ctx): State<AppContext>, Path(id): Path<i64>) -> Result<impl IntoResponse> {
     sqlx::query("DELETE FROM todos WHERE id = ?")
         .bind(id)
         .execute(&ctx.db)
-        .await
-        .ok();
-
-    let todos = fetch_todos(&ctx.db).await;
-    sse_patch(&TodoListFragment { todos }.render().unwrap_or_default())
+        .await?;
+    let todos = fetch_todos(&ctx.db).await?;
+    SseFragment::new(TodoListFragment { todos })
 }
 
 fn routes() -> Router<AppContext> {
@@ -126,19 +84,15 @@ fn routes() -> Router<AppContext> {
 #[tokio::main]
 async fn main() -> Result<()> {
     init_tracing()?;
-
     let config = Config::from_env()?;
     let pool = blixt::db::create_pool(&config).await?;
-
     sqlx::migrate!("./migrations").run(&pool).await.map_err(|e| {
-        blixt::error::Error::Internal(format!("migration failed: {e}"))
+        Error::Internal(format!("migration failed: {e}"))
     })?;
-
-    let ctx = AppContext::new(pool, config);
-
-    let app = App::new(Config::from_env()?)
+    let ctx = AppContext::new(pool, config.clone());
+    App::new(config)
         .router(routes().with_state(ctx))
-        .static_dir("static");
-
-    app.serve().await
+        .static_dir("static")
+        .serve()
+        .await
 }
