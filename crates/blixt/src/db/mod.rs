@@ -3,6 +3,8 @@ mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
+mod macros;
+
 #[cfg(feature = "postgres")]
 pub use self::postgres::create_pool;
 #[cfg(feature = "sqlite")]

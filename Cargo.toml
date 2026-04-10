@@ -46,6 +46,9 @@ dotenvy = "0.15"
 # Error handling
 thiserror = "2"
 
+# Validation
+regex = "1"
+
 # Email
 lettre = { version = "0.11", features = ["tokio1-native-tls", "builder"] }
 

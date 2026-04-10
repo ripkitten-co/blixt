@@ -47,8 +47,12 @@ pub mod logging;
 pub mod mailer;
 /// HTTP middleware (CSRF, rate limiting, security headers).
 pub mod middleware;
+/// Pagination support for database queries.
+pub mod paginate;
 /// Secret-safe wrapper that redacts values in logs.
 pub mod redact;
+/// Input validation.
+pub mod validate;
 
 #[cfg(test)]
 pub(crate) mod test_helpers;
@@ -65,7 +69,9 @@ pub mod prelude {
     pub use crate::jobs::{Job, JobRunner, job_fn};
     pub use crate::logging::init_tracing;
     pub use crate::mailer::{Mailer, MailerConfig};
+    pub use crate::paginate::{Paginated, PaginationParams};
     pub use crate::redact::Redact;
+    pub use crate::validate::Validator;
     pub use askama::Template;
     pub use axum::{
         Router,
@@ -76,4 +82,6 @@ pub mod prelude {
     pub use serde::{Deserialize, Serialize};
     pub use sqlx::FromRow;
     pub use tracing::{debug, error, info, warn};
+
+    pub use crate::{query, query_as, query_scalar};
 }
