@@ -235,11 +235,108 @@ fn write_model_file(
     base: &Path,
     snake: &str,
     pascal: &str,
-    _fields: &[FieldDef],
+    fields: &[FieldDef],
 ) -> Result<(), String> {
     let dir = base.join("src/models");
     let path = dir.join(format!("{snake}.rs"));
     let plural = format!("{snake}s");
+
+    let struct_fields: String = fields
+        .iter()
+        .map(|f| format!("    pub {}: {},\n", f.name, f.rust_type()))
+        .collect();
+
+    let all_columns = build_column_list(fields);
+
+    let select_cols = all_columns.join(", ");
+
+    let mut methods = String::new();
+
+    // find_by_id
+    methods.push_str(&format!(
+        r#"    pub async fn find_by_id(pool: &DbPool, id: i64) -> Result<Self> {{
+        Ok(query_as!(Self, "SELECT {select_cols} FROM {plural} WHERE id = ?")
+            .bind(id)
+            .fetch_one(pool)
+            .await?)
+    }}"#
+    ));
+
+    // find_all
+    methods.push_str(&format!(
+        r#"
+
+    pub async fn find_all(pool: &DbPool) -> Result<Vec<Self>> {{
+        Ok(query_as!(Self, "SELECT {select_cols} FROM {plural} ORDER BY id DESC")
+            .fetch_all(pool)
+            .await?)
+    }}"#
+    ));
+
+    // create + update only when fields are present
+    if !fields.is_empty() {
+        let user_col_names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
+        let insert_cols = user_col_names.join(", ");
+        let insert_placeholders: Vec<&str> = fields.iter().map(|_| "?").collect();
+        let insert_placeholders = insert_placeholders.join(", ");
+
+        let create_params: String = fields
+            .iter()
+            .map(|f| {
+                if f.is_string() {
+                    format!(", {}: &str", f.name)
+                } else {
+                    format!(", {}: {}", f.name, f.rust_type())
+                }
+            })
+            .collect();
+
+        let create_binds: String = fields
+            .iter()
+            .map(|f| format!("\n            .bind({})", f.name))
+            .collect();
+
+        methods.push_str(&format!(
+            r#"
+
+    pub async fn create(pool: &DbPool{create_params}) -> Result<Self> {{
+        Ok(query_as!(Self, "INSERT INTO {plural} ({insert_cols}) VALUES ({insert_placeholders}) RETURNING {select_cols}"){create_binds}
+            .fetch_one(pool)
+            .await?)
+    }}"#
+        ));
+
+        let set_clauses: Vec<String> = fields.iter().map(|f| format!("{} = ?", f.name)).collect();
+        let set_clause = format!("{}, updated_at = CURRENT_TIMESTAMP", set_clauses.join(", "));
+
+        let update_params: String = create_params.clone();
+        let mut update_binds = create_binds.clone();
+        update_binds.push_str("\n            .bind(id)");
+
+        methods.push_str(&format!(
+            r#"
+
+    pub async fn update(pool: &DbPool, id: i64{update_params}) -> Result<Self> {{
+        Ok(query_as!(Self, "UPDATE {plural} SET {set_clause} WHERE id = ? RETURNING {select_cols}"){update_binds}
+            .fetch_one(pool)
+            .await?)
+    }}"#
+        ));
+    }
+
+    // delete
+    methods.push_str(&format!(
+        r#"
+
+    pub async fn delete(pool: &DbPool, id: i64) -> Result<()> {{
+        query!("DELETE FROM {plural} WHERE id = ?")
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }}"#
+    ));
+
     let content = format!(
         r#"use blixt::prelude::*;
 use sqlx::types::chrono::{{DateTime, Utc}};
@@ -247,34 +344,12 @@ use sqlx::types::chrono::{{DateTime, Utc}};
 #[derive(Debug, FromRow, Serialize, Deserialize)]
 pub struct {pascal} {{
     pub id: i64,
-    pub created_at: DateTime<Utc>,
+{struct_fields}    pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }}
 
 impl {pascal} {{
-    /// Find a single record by primary key.
-    pub async fn find_by_id(pool: &DbPool, id: i64) -> Result<Self> {{
-        Ok(query_as!(Self, "SELECT id, created_at, updated_at FROM {plural} WHERE id = ?")
-            .bind(id)
-            .fetch_one(pool)
-            .await?)
-    }}
-
-    /// Fetch all records ordered by most recent first.
-    pub async fn find_all(pool: &DbPool) -> Result<Vec<Self>> {{
-        Ok(query_as!(Self, "SELECT id, created_at, updated_at FROM {plural} ORDER BY id DESC")
-            .fetch_all(pool)
-            .await?)
-    }}
-
-    /// Delete a record by primary key.
-    pub async fn delete(pool: &DbPool, id: i64) -> Result<()> {{
-        query!("DELETE FROM {plural} WHERE id = ?")
-            .bind(id)
-            .execute(pool)
-            .await?;
-        Ok(())
-    }}
+{methods}
 }}
 "#
     );
@@ -283,23 +358,50 @@ impl {pascal} {{
     write_file(&path, &content)
 }
 
+fn build_column_list(fields: &[FieldDef]) -> Vec<String> {
+    let mut cols = vec!["id".to_string()];
+    for f in fields {
+        cols.push(f.name.clone());
+    }
+    cols.push("created_at".to_string());
+    cols.push("updated_at".to_string());
+    cols
+}
+
 /// Writes a timestamped SQL migration file.
 fn write_migration_file(
     base: &Path,
     snake: &str,
     plural: &str,
-    _fields: &[FieldDef],
+    fields: &[FieldDef],
 ) -> Result<(), String> {
+    use crate::fields::{DbDialect, detect_dialect};
+
+    let dialect = detect_dialect();
     let timestamp = Utc::now().format("%Y%m%d%H%M%S");
     let dir = base.join("migrations");
     let path = dir.join(format!("{timestamp}_create_{snake}s.sql"));
+
+    let (id_line, ts_type, ts_default) = match dialect {
+        DbDialect::Postgres => ("id BIGSERIAL PRIMARY KEY", "TIMESTAMPTZ", "NOW()"),
+        DbDialect::Sqlite => (
+            "id INTEGER PRIMARY KEY AUTOINCREMENT",
+            "DATETIME",
+            "CURRENT_TIMESTAMP",
+        ),
+    };
+
+    let field_lines: String = fields
+        .iter()
+        .map(|f| format!(",\n    {} {}", f.name, f.sql_type(dialect)))
+        .collect();
+
     let content = format!(
-        r#"CREATE TABLE IF NOT EXISTS {plural} (
-    id BIGSERIAL PRIMARY KEY,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-"#
+        "CREATE TABLE IF NOT EXISTS {plural} (\
+\n    {id_line}{field_lines},\
+\n    created_at {ts_type} NOT NULL DEFAULT {ts_default},\
+\n    updated_at {ts_type} NOT NULL DEFAULT {ts_default}\
+\n);\n"
     );
 
     ensure_dir_exists(&dir)?;
@@ -473,6 +575,43 @@ mod tests {
             .filter_map(|entry| entry.ok())
             .collect();
         assert_eq!(entries.len(), 1);
+    }
+
+    #[test]
+    fn model_with_fields_generates_struct_and_methods() {
+        let tmp = TempDir::new().expect("failed to create temp dir");
+        let base = tmp.path();
+        let fields = vec![
+            FieldDef {
+                name: "title".into(),
+                field_type: FieldType::String,
+            },
+            FieldDef {
+                name: "published".into(),
+                field_type: FieldType::Bool,
+            },
+        ];
+
+        generate_model_in(base, "Article", &fields).expect("generate_model_in failed");
+
+        let model =
+            fs::read_to_string(base.join("src/models/article.rs")).expect("model file missing");
+        assert!(model.contains("pub title: String"));
+        assert!(model.contains("pub published: bool"));
+        assert!(model.contains("pub async fn create("));
+        assert!(model.contains("pub async fn update("));
+        assert!(model.contains("INSERT INTO"));
+        assert!(model.contains("UPDATE articles SET"));
+        assert!(model.contains("RETURNING"));
+
+        let migration_dir = base.join("migrations");
+        let entries: Vec<_> = fs::read_dir(&migration_dir)
+            .expect("migrations dir missing")
+            .filter_map(|e| e.ok())
+            .collect();
+        let sql = fs::read_to_string(entries[0].path()).expect("migration file missing");
+        assert!(sql.contains("title TEXT NOT NULL"));
+        assert!(sql.contains("published BOOLEAN NOT NULL"));
     }
 
     #[test]
