@@ -24,7 +24,7 @@ impl FieldType {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DbDialect {
     Postgres,
     Sqlite,
@@ -89,6 +89,22 @@ pub fn parse_fields(args: &[&str]) -> Result<Vec<FieldDef>, String> {
     }
 
     Ok(fields)
+}
+
+pub fn detect_dialect_from_url(url: &str) -> DbDialect {
+    if url.starts_with("sqlite") {
+        DbDialect::Sqlite
+    } else {
+        DbDialect::Postgres
+    }
+}
+
+pub fn detect_dialect() -> DbDialect {
+    dotenvy::dotenv().ok();
+    match std::env::var("DATABASE_URL") {
+        Ok(url) => detect_dialect_from_url(&url),
+        Err(_) => DbDialect::Postgres,
+    }
 }
 
 #[cfg(test)]
@@ -189,6 +205,38 @@ mod tests {
         assert_eq!(
             field.sql_type(DbDialect::Sqlite),
             "INTEGER NOT NULL DEFAULT 0"
+        );
+    }
+
+    #[test]
+    fn detects_postgres_from_url() {
+        assert_eq!(
+            detect_dialect_from_url("postgres://localhost/mydb"),
+            DbDialect::Postgres
+        );
+        assert_eq!(
+            detect_dialect_from_url("postgresql://localhost/mydb"),
+            DbDialect::Postgres
+        );
+    }
+
+    #[test]
+    fn detects_sqlite_from_url() {
+        assert_eq!(
+            detect_dialect_from_url("sqlite://./data.db"),
+            DbDialect::Sqlite
+        );
+        assert_eq!(
+            detect_dialect_from_url("sqlite:data.db?mode=rwc"),
+            DbDialect::Sqlite
+        );
+    }
+
+    #[test]
+    fn defaults_to_postgres_for_unknown_url() {
+        assert_eq!(
+            detect_dialect_from_url("mysql://localhost/db"),
+            DbDialect::Postgres
         );
     }
 }
