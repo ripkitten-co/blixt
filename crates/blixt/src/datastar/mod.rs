@@ -1,12 +1,14 @@
 /// SSE response types for DOM patching and signal updates.
 pub mod responses;
 mod signals;
+mod sse_response;
 
 #[cfg(debug_assertions)]
 pub mod hmr;
 
 pub use responses::{SseFragment, SseSignals, SseStream};
 pub use signals::DatastarSignals;
+pub use sse_response::SseResponse;
 
 /// Compile-time gate: in release builds, the `hmr` module must not exist.
 /// This function will fail to compile if `hmr` is accidentally exposed in
