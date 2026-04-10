@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-04-10
+
 ### Added
 
 - `SseResponse` multi-event builder for composing DOM patches and signal updates in a single SSE response
@@ -75,5 +77,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `blixt db migrate/rollback/status` — database migration management
   - Automatic Tailwind v4 download with checksum verification
 
-[unreleased]: https://github.com/ripkitten-co/blixt/compare/v0.1.0...HEAD
+[unreleased]: https://github.com/ripkitten-co/blixt/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ripkitten-co/blixt/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ripkitten-co/blixt/releases/tag/v0.1.0
