@@ -11,9 +11,23 @@ use std::pin::Pin;
 /// For `datastar-patch-signals`, use `data_key` = `"signals"`.
 ///
 /// Multi-line content is collapsed to a single line to prevent framing issues.
-fn format_sse_event(event_type: &str, data_key: &str, data: &str) -> String {
+pub(crate) fn format_sse_event(event_type: &str, data_key: &str, data: &str) -> String {
     let oneline: String = data.trim().lines().map(str::trim).collect();
     format!("event: {event_type}\ndata: {data_key} {oneline}\n\n")
+}
+
+/// Build an HTTP response with SSE headers and the given body.
+///
+/// Sets `Content-Type: text/event-stream` and `Cache-Control: no-cache`.
+pub(crate) fn into_sse_response(body: String) -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "text/event-stream"),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        body,
+    )
+        .into_response()
 }
 
 /// Single-shot SSE response that patches DOM elements via Datastar.
@@ -41,15 +55,11 @@ impl SseFragment {
 
 impl IntoResponse for SseFragment {
     fn into_response(self) -> Response {
-        let body = format_sse_event("datastar-patch-elements", "elements", &self.html);
-        (
-            [
-                (header::CONTENT_TYPE, "text/event-stream"),
-                (header::CACHE_CONTROL, "no-cache"),
-            ],
-            body,
-        )
-            .into_response()
+        into_sse_response(format_sse_event(
+            "datastar-patch-elements",
+            "elements",
+            &self.html,
+        ))
     }
 }
 
@@ -72,15 +82,11 @@ impl SseSignals {
 
 impl IntoResponse for SseSignals {
     fn into_response(self) -> Response {
-        let body = format_sse_event("datastar-patch-signals", "signals", &self.json);
-        (
-            [
-                (header::CONTENT_TYPE, "text/event-stream"),
-                (header::CACHE_CONTROL, "no-cache"),
-            ],
-            body,
-        )
-            .into_response()
+        into_sse_response(format_sse_event(
+            "datastar-patch-signals",
+            "signals",
+            &self.json,
+        ))
     }
 }
 

@@ -25,6 +25,7 @@ impl Environment {
 }
 
 /// Application configuration loaded from environment variables.
+#[derive(Clone)]
 pub struct Config {
     /// Bind address (default `127.0.0.1`, env `HOST`).
     pub host: String,
