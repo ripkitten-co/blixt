@@ -19,6 +19,9 @@ Thumbs.db
 *.swo
 *~
 
+# Database
+*.db
+
 # Framework dev
 .worktrees/
 *.log

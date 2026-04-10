@@ -1,5 +1,6 @@
 use axum::http::header;
 use axum::response::{Html, Response};
+use blixt::datastar::DatastarSignals;
 use blixt::prelude::*;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -7,11 +8,6 @@ struct Todo {
     id: i64,
     title: String,
     completed: bool,
-}
-
-#[derive(Deserialize)]
-struct NewTodo {
-    title: String,
 }
 
 #[derive(Template)]
@@ -65,9 +61,10 @@ async fn index(State(ctx): State<AppContext>) -> impl IntoResponse {
 
 async fn create(
     State(ctx): State<AppContext>,
-    axum::Form(form): axum::Form<NewTodo>,
+    signals: DatastarSignals,
 ) -> Response {
-    let title = form.title.trim();
+    let title: String = signals.get("title").unwrap_or_default();
+    let title = title.trim();
     if title.is_empty() {
         return sse_signals(r#"{"title":""}"#);
     }
@@ -139,8 +136,7 @@ async fn main() -> Result<()> {
 
     let ctx = AppContext::new(pool, config);
 
-    let server_config = Config::from_env()?;
-    let app = App::new(server_config)
+    let app = App::new(Config::from_env()?)
         .router(routes().with_state(ctx))
         .static_dir("static");
 

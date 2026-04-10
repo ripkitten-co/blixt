@@ -1,99 +1,11 @@
-
 {% extends "layouts/app.html" %}
 {% block title %}Hello{% endblock %}
-{% block description %}A lightning-fast web application built with Blixt{% endblock %}
 {% block content %}
-<main class="min-h-screen flex flex-col items-center justify-center p-6 selection:bg-amber-400/20">
-  <div class="w-full max-w-xl">
-
-    <div class="flex flex-col items-center mb-12">
-      <img src="/static/logo.svg" alt="Blixt" class="w-10 h-16 mb-5">
-      <h1 class="text-[15px] font-medium tracking-[0.25em] uppercase text-zinc-300">blixt</h1>
-      <div class="flex items-center gap-3 mt-3">
-        <span class="size-1.5 rounded-full bg-emerald-500 animate-pulse" aria-hidden="true"></span>
-        <span class="font-mono text-[11px] text-zinc-400">
-          :{{ port }} &middot; {{ env }}
-        </span>
-      </div>
-    </div>
-
-    <div class="grid grid-cols-3 gap-3 mb-3">
-      <a href="https://github.com/ripkitten-co/blixt" target="_blank"
-         class="group border border-zinc-800/80 rounded-lg bg-zinc-900/40 p-4
-                hover:border-zinc-700 hover:bg-zinc-900/70 transition-all">
-        <p class="text-[11px] font-mono text-zinc-400 group-hover:text-zinc-300 transition-colors mb-1">01</p>
-        <p class="text-sm font-medium text-zinc-300 group-hover:text-zinc-100 transition-colors">Docs</p>
-        <p class="text-[11px] text-zinc-400 mt-1 leading-relaxed">Read the guide</p>
-      </a>
-      <div class="group border border-zinc-800/80 rounded-lg bg-zinc-900/40 p-4
-                  hover:border-zinc-700 hover:bg-zinc-900/70 transition-all cursor-default">
-        <p class="text-[11px] font-mono text-zinc-400 group-hover:text-zinc-300 transition-colors mb-1">02</p>
-        <p class="text-sm font-medium text-zinc-300 group-hover:text-zinc-100 transition-colors">Generate</p>
-        <p class="text-[11px] text-zinc-400 mt-1 leading-relaxed font-mono">blixt g scaffold</p>
-      </div>
-      <div class="group border border-zinc-800/80 rounded-lg bg-zinc-900/40 p-4
-                  hover:border-zinc-700 hover:bg-zinc-900/70 transition-all cursor-default">
-        <p class="text-[11px] font-mono text-zinc-400 group-hover:text-zinc-300 transition-colors mb-1">03</p>
-        <p class="text-sm font-medium text-zinc-300 group-hover:text-zinc-100 transition-colors">Edit</p>
-        <p class="text-[11px] text-zinc-400 mt-1 leading-relaxed">controllers/home.rs</p>
-      </div>
-    </div>
-
-    <!-- Datastar: client-side signals -->
-    <div class="border border-zinc-800/80 rounded-lg bg-zinc-900/40 p-5 mb-3" data-signals:count="0">
-      <div class="flex items-center justify-between">
-        <div>
-          <p class="text-[10px] font-mono text-zinc-500 uppercase tracking-widest mb-1.5">Client signals</p>
-          <div class="flex items-baseline gap-3">
-            <p class="text-3xl font-mono text-amber-400 tabular-nums leading-none" data-text="$count">0</p>
-            <p class="text-[11px] text-zinc-400 font-mono">reactive, no server</p>
-          </div>
-        </div>
-        <div class="flex gap-1.5">
-          <button data-on:click="$count--"
-            class="size-8 rounded border border-zinc-800 bg-zinc-900 text-zinc-400
-                   hover:border-zinc-600 hover:text-zinc-300 transition-colors
-                   font-mono text-sm cursor-pointer grid place-items-center">&minus;</button>
-          <button data-on:click="$count++"
-            class="size-8 rounded border border-zinc-800 bg-zinc-900 text-zinc-400
-                   hover:border-zinc-600 hover:text-zinc-300 transition-colors
-                   font-mono text-sm cursor-pointer grid place-items-center">+</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Datastar: SSE server fragment -->
-    <div class="border border-zinc-800/80 rounded-lg bg-zinc-900/40 p-5 mb-3">
-      <p class="text-[10px] font-mono text-zinc-500 uppercase tracking-widest mb-2">SSE fragment</p>
-      <div class="flex items-center justify-between">
-        <div id="server-time" class="font-mono text-sm text-zinc-400">Click fetch to get server time</div>
-        <button data-on:click="@get('/fragments/time')"
-          class="px-3 py-1.5 rounded border border-zinc-800 bg-zinc-900 text-zinc-400
-                 hover:border-zinc-600 hover:text-zinc-300 transition-colors
-                 font-mono text-xs cursor-pointer">Fetch</button>
-      </div>
-      <p class="text-[11px] text-zinc-400 font-mono mt-2">Server renders HTML, Datastar patches it in via SSE</p>
-    </div>
-
-    <!-- JSON API via SSE -->
-    <div class="border border-zinc-800/80 rounded-lg bg-zinc-900/40 p-5 mb-3">
-      <p class="text-[10px] font-mono text-zinc-500 uppercase tracking-widest mb-2">API &rarr; SSE</p>
-      <div class="flex items-center justify-between">
-        <div id="api-result" class="font-mono text-xs text-zinc-400">GET /api/status</div>
-        <button data-on:click="@get('/fragments/status')"
-          class="px-3 py-1.5 rounded border border-zinc-800 bg-zinc-900 text-zinc-400
-                 hover:border-zinc-600 hover:text-zinc-300 transition-colors
-                 font-mono text-xs cursor-pointer">Fetch</button>
-      </div>
-      <p class="text-[11px] text-zinc-400 font-mono mt-2">Server queries data, renders HTML fragment, patches DOM</p>
-    </div>
-
-    <nav class="flex items-center justify-center gap-5 mt-8 font-mono text-[11px] text-zinc-400" aria-label="Resources">
-      <a href="https://github.com/ripkitten-co/blixt" class="hover:text-zinc-200 transition-colors">GitHub</a>
-      <a href="https://data-star.dev" class="hover:text-zinc-200 transition-colors">Datastar</a>
-      <a href="https://tailwindcss.com" class="hover:text-zinc-200 transition-colors">Tailwind</a>
-    </nav>
-
+<main class="min-h-screen flex items-center justify-center">
+  <div class="text-center">
+    <img src="/static/logo.svg" alt="Blixt" class="w-10 h-16 mx-auto mb-6">
+    <h1 class="text-3xl font-bold text-zinc-100">{{ greeting }}</h1>
+    <p class="mt-3 text-zinc-500 text-sm font-mono">edit src/main.rs to get started</p>
   </div>
 </main>
 {% endblock %}
