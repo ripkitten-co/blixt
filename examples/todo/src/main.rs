@@ -2,6 +2,8 @@ use blixt::prelude::*;
 use blixt::validate::Validator;
 use serde_json::json;
 
+const PER_PAGE: u32 = 5;
+
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 struct Todo {
     id: i64,
@@ -12,23 +14,22 @@ struct Todo {
 #[derive(Template)]
 #[template(path = "pages/home.html")]
 struct HomePage {
-    todos: Vec<Todo>,
     page: Paginated<Todo>,
 }
 
 #[derive(Template)]
 #[template(path = "fragments/todo_list.html")]
 struct TodoListFragment {
-    todos: Vec<Todo>,
+    page: Paginated<Todo>,
 }
 
-async fn fetch_todos(pool: &DbPool) -> Result<Vec<Todo>> {
-    Ok(query_as!(
-        Todo,
-        "SELECT id, title, completed FROM todos ORDER BY id DESC"
+async fn fetch_page(pool: &DbPool, page_num: u32) -> Result<Paginated<Todo>> {
+    Paginated::<Todo>::query(
+        "SELECT id, title, completed FROM todos ORDER BY id DESC",
+        pool,
+        &PaginationParams::new(page_num, PER_PAGE),
     )
-    .fetch_all(pool)
-    .await?)
+    .await
 }
 
 async fn index(
@@ -38,14 +39,26 @@ async fn index(
     let page = Paginated::<Todo>::query(
         "SELECT id, title, completed FROM todos ORDER BY id DESC",
         &ctx.db,
-        &pagination,
+        &PaginationParams::new(pagination.page(), PER_PAGE),
     )
     .await?;
-    let todos = page.items.clone();
-    let html = HomePage { todos, page }
+    let html = HomePage { page }
         .render()
         .map_err(|e| Error::Internal(e.to_string()))?;
     Ok(Html(html))
+}
+
+async fn page_handler(
+    State(ctx): State<AppContext>,
+    pagination: PaginationParams,
+) -> Result<impl IntoResponse> {
+    let page = Paginated::<Todo>::query(
+        "SELECT id, title, completed FROM todos ORDER BY id DESC",
+        &ctx.db,
+        &PaginationParams::new(pagination.page(), PER_PAGE),
+    )
+    .await?;
+    SseFragment::new(TodoListFragment { page })
 }
 
 async fn create(
@@ -61,9 +74,9 @@ async fn create(
         .bind(&title)
         .execute(&ctx.db)
         .await?;
-    let todos = fetch_todos(&ctx.db).await?;
+    let page = fetch_page(&ctx.db, 1).await?;
     SseResponse::new()
-        .patch(TodoListFragment { todos })?
+        .patch(TodoListFragment { page })?
         .signals(&json!({"title": ""}))
 }
 
@@ -72,8 +85,8 @@ async fn toggle(State(ctx): State<AppContext>, Path(id): Path<i64>) -> Result<im
         .bind(id)
         .execute(&ctx.db)
         .await?;
-    let todos = fetch_todos(&ctx.db).await?;
-    SseFragment::new(TodoListFragment { todos })
+    let page = fetch_page(&ctx.db, 1).await?;
+    SseFragment::new(TodoListFragment { page })
 }
 
 async fn remove(State(ctx): State<AppContext>, Path(id): Path<i64>) -> Result<impl IntoResponse> {
@@ -81,14 +94,15 @@ async fn remove(State(ctx): State<AppContext>, Path(id): Path<i64>) -> Result<im
         .bind(id)
         .execute(&ctx.db)
         .await?;
-    let todos = fetch_todos(&ctx.db).await?;
-    SseFragment::new(TodoListFragment { todos })
+    let page = fetch_page(&ctx.db, 1).await?;
+    SseFragment::new(TodoListFragment { page })
 }
 
 fn routes() -> Router<AppContext> {
     Router::new()
         .route("/", get(index))
         .route("/todos", post(create))
+        .route("/todos/page", get(page_handler))
         .route("/todos/{id}/toggle", put(toggle))
         .route("/todos/{id}", delete(remove))
 }

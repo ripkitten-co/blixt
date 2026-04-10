@@ -52,6 +52,14 @@ pub struct PaginationParams {
 }
 
 impl PaginationParams {
+    /// Create pagination params with explicit values.
+    pub fn new(page: u32, per_page: u32) -> Self {
+        Self {
+            page: Some(page),
+            per_page: Some(per_page),
+        }
+    }
+
     /// Returns the current page number (1-indexed, minimum 1).
     pub fn page(&self) -> u32 {
         self.page.unwrap_or(1).max(1)
