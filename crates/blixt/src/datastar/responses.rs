@@ -12,7 +12,12 @@ use std::pin::Pin;
 ///
 /// Multi-line content is collapsed to a single line to prevent framing issues.
 pub(crate) fn format_sse_event(event_type: &str, data_key: &str, data: &str) -> String {
-    let oneline: String = data.trim().lines().map(str::trim).collect();
+    let oneline = data
+        .trim()
+        .lines()
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .join(" ");
     format!("event: {event_type}\ndata: {data_key} {oneline}\n\n")
 }
 
@@ -150,7 +155,7 @@ mod tests {
         let result = format_sse_event("datastar-patch-elements", "elements", html);
         assert_eq!(
             result,
-            "event: datastar-patch-elements\ndata: elements <div><p>hi</p></div>\n\n"
+            "event: datastar-patch-elements\ndata: elements <div> <p>hi</p> </div>\n\n"
         );
     }
 
@@ -211,7 +216,7 @@ mod tests {
         let body = response_body(resp).await;
         assert_eq!(
             body,
-            "event: datastar-patch-elements\ndata: elements <div><span>inner</span></div>\n\n"
+            "event: datastar-patch-elements\ndata: elements <div> <span>inner</span> </div>\n\n"
         );
     }
 

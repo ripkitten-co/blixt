@@ -214,7 +214,7 @@ mod tests {
         let html = "<div>\n  <p>inner</p>\n</div>";
         let resp = SseResponse::new().patch_html(html).into_response();
         let body = response_body(resp).await;
-        assert!(body.contains("<div><p>inner</p></div>"));
+        assert!(body.contains("<div> <p>inner</p> </div>"));
     }
 
     #[tokio::test]
