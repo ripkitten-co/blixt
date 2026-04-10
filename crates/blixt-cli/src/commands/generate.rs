@@ -134,23 +134,76 @@ fn write_scaffold_controller_file(
     base: &Path,
     snake: &str,
     pascal: &str,
-    _fields: &[FieldDef],
+    fields: &[FieldDef],
 ) -> Result<(), String> {
     let dir = base.join("src/controllers");
     let path = dir.join(format!("{snake}.rs"));
+
+    let col_list = build_column_list(fields).join(", ");
+
+    let signal_extractions: String = fields
+        .iter()
+        .map(|f| {
+            format!(
+                "    let {}: {} = signals.get(\"{}\")?;\n",
+                f.name,
+                f.rust_type(),
+                f.name
+            )
+        })
+        .collect();
+
+    let validator_calls: String = fields
+        .iter()
+        .filter(|f| f.is_string())
+        .map(|f| {
+            format!(
+                "    v.str_field(&{name}, \"{name}\").not_empty().max_length(255);\n",
+                name = f.name
+            )
+        })
+        .collect();
+
+    let create_args: String = fields
+        .iter()
+        .map(|f| {
+            if f.is_string() {
+                format!(", &{}", f.name)
+            } else {
+                format!(", {}", f.name)
+            }
+        })
+        .collect();
+
+    let signal_reset_pairs: String = fields
+        .iter()
+        .map(|f| match f.field_type {
+            FieldType::String => format!("\"{}\": \"\"", f.name),
+            FieldType::Bool => format!("\"{}\": false", f.name),
+            FieldType::Int => format!("\"{}\": 0", f.name),
+            FieldType::Float => format!("\"{}\": 0.0", f.name),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
     let content = format!(
         r#"use blixt::prelude::*;
+use blixt::validate::Validator;
+use serde_json::json;
 use crate::models::{snake}::{pascal};
+
+const PER_PAGE: u32 = 10;
 
 #[derive(Template)]
 #[template(path = "pages/{snake}/index.html")]
 pub struct {pascal}Index {{
-    pub items: Vec<{pascal}>,
+    pub page: Paginated<{pascal}>,
 }}
 
-pub async fn index(State(ctx): State<AppContext>) -> Result<impl IntoResponse> {{
-    let items = {pascal}::find_all(&ctx.db).await?;
-    Ok(Html({pascal}Index {{ items }}.render().map_err(|e| Error::Internal(e.to_string()))?))
+#[derive(Template)]
+#[template(path = "fragments/{snake}/list.html")]
+pub struct {pascal}ListFragment {{
+    pub page: Paginated<{pascal}>,
 }}
 
 #[derive(Template)]
@@ -159,15 +212,76 @@ pub struct {pascal}Show {{
     pub item: {pascal},
 }}
 
-pub async fn show(State(ctx): State<AppContext>, Path(id): Path<i64>) -> Result<impl IntoResponse> {{
-    let item = {pascal}::find_by_id(&ctx.db, id).await?;
-    Ok(Html({pascal}Show {{ item }}.render().map_err(|e| Error::Internal(e.to_string()))?))
+async fn fetch_page(pool: &DbPool, page_num: u32) -> Result<Paginated<{pascal}>> {{
+    Paginated::<{pascal}>::query(
+        "SELECT {col_list} FROM {snake}s ORDER BY id DESC",
+        pool,
+        &PaginationParams::new(page_num, PER_PAGE),
+    )
+    .await
 }}
 
-pub async fn destroy(State(ctx): State<AppContext>, Path(id): Path<i64>) -> Result<impl IntoResponse> {{
+pub async fn index(
+    State(ctx): State<AppContext>,
+    pagination: PaginationParams,
+) -> Result<impl IntoResponse> {{
+    let page = fetch_page(&ctx.db, pagination.page()).await?;
+    let html = {pascal}Index {{ page }}
+        .render()
+        .map_err(|e| Error::Internal(e.to_string()))?;
+    Ok(Html(html))
+}}
+
+pub async fn show(
+    State(ctx): State<AppContext>,
+    Path(id): Path<i64>,
+) -> Result<impl IntoResponse> {{
+    let item = {pascal}::find_by_id(&ctx.db, id).await?;
+    let html = {pascal}Show {{ item }}
+        .render()
+        .map_err(|e| Error::Internal(e.to_string()))?;
+    Ok(Html(html))
+}}
+
+pub async fn create(
+    State(ctx): State<AppContext>,
+    signals: DatastarSignals,
+) -> Result<impl IntoResponse> {{
+{signal_extractions}
+    let mut v = Validator::new();
+{validator_calls}    v.check()?;
+
+    {pascal}::create(&ctx.db{create_args}).await?;
+    let page = fetch_page(&ctx.db, 1).await?;
+    SseResponse::new()
+        .patch({pascal}ListFragment {{ page }})?
+        .signals(&json!({{{signal_reset_pairs}}}))
+}}
+
+pub async fn update(
+    State(ctx): State<AppContext>,
+    Path(id): Path<i64>,
+    signals: DatastarSignals,
+) -> Result<impl IntoResponse> {{
+{signal_extractions}
+    let mut v = Validator::new();
+{validator_calls}    v.check()?;
+
+    let item = {pascal}::update(&ctx.db, id{create_args}).await?;
+    let html = {pascal}Show {{ item }}
+        .render()
+        .map_err(|e| Error::Internal(e.to_string()))?;
+    SseResponse::new().patch_html(&html)
+}}
+
+pub async fn destroy(
+    State(ctx): State<AppContext>,
+    Path(id): Path<i64>,
+    pagination: PaginationParams,
+) -> Result<impl IntoResponse> {{
     {pascal}::delete(&ctx.db, id).await?;
-    let items = {pascal}::find_all(&ctx.db).await?;
-    Ok(SseFragment::new({pascal}Index {{ items }})?)
+    let page = fetch_page(&ctx.db, pagination.page()).await?;
+    SseFragment::new({pascal}ListFragment {{ page }})
 }}
 "#
     );
@@ -561,7 +675,7 @@ mod tests {
 
         let controller = fs::read_to_string(base.join("src/controllers/product.rs"))
             .expect("scaffold controller missing");
-        assert!(controller.contains("find_all"));
+        assert!(controller.contains("Paginated"));
         assert!(controller.contains("find_by_id"));
         assert!(controller.contains("State(ctx)"));
 
@@ -612,6 +726,34 @@ mod tests {
         let sql = fs::read_to_string(entries[0].path()).expect("migration file missing");
         assert!(sql.contains("title TEXT NOT NULL"));
         assert!(sql.contains("published BOOLEAN NOT NULL"));
+    }
+
+    #[test]
+    fn scaffold_controller_has_all_crud_handlers() {
+        let tmp = TempDir::new().expect("failed to create temp dir");
+        let base = tmp.path();
+        let fields = vec![FieldDef {
+            name: "title".into(),
+            field_type: FieldType::String,
+        }];
+
+        generate_scaffold_in(base, "Post", &fields).expect("scaffold failed");
+
+        let controller =
+            fs::read_to_string(base.join("src/controllers/post.rs")).expect("controller missing");
+
+        assert!(controller.contains("pub async fn index("));
+        assert!(controller.contains("pub async fn show("));
+        assert!(controller.contains("pub async fn create("));
+        assert!(controller.contains("pub async fn update("));
+        assert!(controller.contains("pub async fn destroy("));
+
+        assert!(controller.contains("PaginationParams"));
+        assert!(controller.contains("Paginated"));
+        assert!(controller.contains("DatastarSignals"));
+        assert!(controller.contains("Validator"));
+        assert!(controller.contains("SseResponse"));
+        assert!(controller.contains("SseFragment"));
     }
 
     #[test]
