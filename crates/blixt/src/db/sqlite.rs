@@ -4,6 +4,7 @@ use sqlx::sqlite::SqlitePoolOptions;
 use crate::config::Config;
 use crate::error::{Error, Result};
 
+/// Creates a SQLite connection pool from the application configuration.
 pub async fn create_pool(config: &Config) -> Result<SqlitePool> {
     let url = config
         .database_url()

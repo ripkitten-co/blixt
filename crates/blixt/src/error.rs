@@ -1,32 +1,95 @@
+use std::collections::HashMap;
+
 use axum::http::StatusCode;
 use axum::http::header::RETRY_AFTER;
 use axum::response::{IntoResponse, Response};
 
+/// Per-field validation error messages.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ValidationErrors {
+    /// Map of field names to lists of error messages.
+    pub errors: HashMap<String, Vec<String>>,
+}
+
+impl ValidationErrors {
+    /// Creates an empty validation error set.
+    pub fn new() -> Self {
+        Self {
+            errors: HashMap::new(),
+        }
+    }
+
+    /// Adds an error message for a field.
+    pub fn add(&mut self, field: &str, message: String) {
+        self.errors
+            .entry(field.to_owned())
+            .or_default()
+            .push(message);
+    }
+
+    /// Returns true if there are no errors.
+    pub fn is_empty(&self) -> bool {
+        self.errors.is_empty()
+    }
+}
+
+impl Default for ValidationErrors {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Display for ValidationErrors {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Validation failed: ")?;
+        let mut fields: Vec<&str> = self.errors.keys().map(String::as_str).collect();
+        fields.sort_unstable();
+        write!(f, "{}", fields.join(", "))
+    }
+}
+
+/// Blixt result type using [`Error`].
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Unified error type with HTTP status code mapping.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// IO error.
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
+    /// Database error.
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
 
+    /// 404 Not Found.
     #[error("Not found")]
     NotFound,
 
+    /// 401 Unauthorized.
     #[error("Unauthorized")]
     Unauthorized,
 
+    /// 403 Forbidden.
     #[error("Forbidden")]
     Forbidden,
 
+    /// 400 Bad Request with a user-visible message.
     #[error("Bad request: {0}")]
     BadRequest(String),
 
+    /// 429 Too Many Requests.
     #[error("Rate limited")]
-    RateLimited { retry_after_secs: Option<u64> },
+    RateLimited {
+        /// Seconds until the client should retry, sent as `Retry-After`.
+        retry_after_secs: Option<u64>,
+    },
 
+    /// 422 Unprocessable Entity with per-field validation errors.
+    #[error("{0}")]
+    Validation(ValidationErrors),
+
+    /// Catch-all for internal failures (logged, never exposed to clients).
     #[error("Internal error: {0}")]
     Internal(String),
 }
@@ -40,6 +103,11 @@ impl IntoResponse for Error {
             }
             Self::Forbidden => (StatusCode::FORBIDDEN, "Forbidden".to_string()).into_response(),
             Self::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg).into_response(),
+            Self::Validation(ref errors) => {
+                let body = serde_json::to_string(errors)
+                    .unwrap_or_else(|_| r#"{"errors":{}}"#.to_string());
+                (StatusCode::UNPROCESSABLE_ENTITY, body).into_response()
+            }
             Self::RateLimited { retry_after_secs } => build_rate_limited_response(retry_after_secs),
             Self::Io(ref err) => {
                 tracing::error!(error = %err, "IO error");
@@ -191,6 +259,34 @@ mod tests {
 
         let body = response_body(resp).await;
         assert_eq!(body, "email is required");
+    }
+
+    #[tokio::test]
+    async fn validation_error_returns_422_with_json() {
+        let mut errors = ValidationErrors::new();
+        errors.add("title", "must not be empty".to_string());
+        errors.add("title", "must be at most 255 characters".to_string());
+        errors.add("priority", "must be between 1 and 5".to_string());
+        let err = Error::Validation(errors);
+        let resp = err.into_response();
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let body = response_body(resp).await;
+        assert!(body.contains("title"));
+        assert!(body.contains("must not be empty"));
+        assert!(body.contains("priority"));
+    }
+
+    #[tokio::test]
+    async fn validation_error_does_not_leak_field_values() {
+        let mut errors = ValidationErrors::new();
+        errors.add("password", "must be at least 8 characters".to_string());
+        let err = Error::Validation(errors);
+        let resp = err.into_response();
+        let body = response_body(resp).await;
+        // Error message references the field name and rule, not the actual value
+        assert!(!body.contains("hunter2"));
+        assert!(body.contains("password"));
+        assert!(body.contains("must be at least 8 characters"));
     }
 
     #[tokio::test]

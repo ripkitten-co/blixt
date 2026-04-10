@@ -6,6 +6,7 @@ use sqlx::postgres::PgPoolOptions;
 use crate::config::Config;
 use crate::error::{Error, Result};
 
+/// Creates a PostgreSQL connection pool from the application configuration.
 pub async fn create_pool(config: &Config) -> Result<PgPool> {
     let url = config
         .database_url()

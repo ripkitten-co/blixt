@@ -1,12 +1,15 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
+exclude = ["examples/hello", "examples/todo"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/ripkitten-co/blixt"
+homepage = "https://github.com/ripkitten-co/blixt"
+rust-version = "1.85"
 description = "A lightning-fast Rust web framework with compile-time safety and zero JavaScript build steps"
 
 [workspace.dependencies]
@@ -42,6 +45,9 @@ dotenvy = "0.15"
 
 # Error handling
 thiserror = "2"
+
+# Validation
+regex = "1"
 
 # Email
 lettre = { version = "0.11", features = ["tokio1-native-tls", "builder"] }

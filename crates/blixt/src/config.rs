@@ -2,11 +2,15 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use std::fmt;
 
+/// Runtime environment.
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Environment {
+    /// Local development (default).
     Development,
+    /// Production deployment.
     Production,
+    /// Automated test runs.
     Test,
 }
 
@@ -20,11 +24,18 @@ impl Environment {
     }
 }
 
+/// Application configuration loaded from environment variables.
+#[derive(Clone)]
 pub struct Config {
+    /// Bind address (default `127.0.0.1`, env `HOST`).
     pub host: String,
+    /// Listen port (default `3000`, env `PORT`).
     pub port: u16,
+    /// Runtime environment (env `BLIXT_ENV`).
     pub blixt_env: Environment,
+    /// Database connection string (env `DATABASE_URL`).
     pub database_url: Option<SecretString>,
+    /// HMAC secret for JWT signing (env `JWT_SECRET`).
     pub jwt_secret: Option<SecretString>,
 }
 
@@ -41,6 +52,9 @@ impl fmt::Debug for Config {
 }
 
 impl Config {
+    /// Loads configuration from environment variables and `.env` files.
+    ///
+    /// In non-production environments, `.env` is loaded via dotenvy first.
     pub fn from_env() -> crate::error::Result<Self> {
         let blixt_env = Environment::from_env_var();
 
@@ -70,10 +84,12 @@ impl Config {
         Ok(config)
     }
 
+    /// Exposes the database URL for pool creation.
     pub fn database_url(&self) -> Option<&str> {
         self.database_url.as_ref().map(|s| s.expose_secret())
     }
 
+    /// Exposes the JWT secret for token signing.
     pub fn jwt_secret(&self) -> Option<&str> {
         self.jwt_secret.as_ref().map(|s| s.expose_secret())
     }

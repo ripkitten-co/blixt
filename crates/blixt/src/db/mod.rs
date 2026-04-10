@@ -3,13 +3,17 @@ mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
+mod macros;
+
 #[cfg(feature = "postgres")]
 pub use self::postgres::create_pool;
 #[cfg(feature = "sqlite")]
 pub use self::sqlite::create_pool;
 
+/// Connection pool for the PostgreSQL backend.
 #[cfg(all(feature = "postgres", not(feature = "sqlite")))]
 pub type DbPool = sqlx::PgPool;
+/// Connection pool for the SQLite backend.
 #[cfg(all(feature = "sqlite", not(feature = "postgres")))]
 pub type DbPool = sqlx::SqlitePool;
 
