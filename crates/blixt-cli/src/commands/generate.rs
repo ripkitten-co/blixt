@@ -85,7 +85,9 @@ fn generate_scaffold_in(base: &Path, name: &str, fields: &[FieldDef]) -> Result<
     write_scaffold_controller_file(base, &snake, &pascal, fields)?;
     write_scaffold_index_template(base, &snake, &pascal, fields)?;
     write_scaffold_show_template(base, &snake, &pascal, fields)?;
+    write_form_fragment(base, &snake, &pascal, fields)?;
     write_list_fragment(base, &snake, fields)?;
+    write_item_fragment(base, &snake, fields)?;
 
     println!("  {} controller {snake}", style("created").green().bold());
     print_scaffold_route_hints(&snake);
@@ -283,6 +285,14 @@ pub async fn destroy(
     let page = fetch_page(&ctx.db, pagination.page()).await?;
     SseFragment::new({pascal}ListFragment {{ page }})
 }}
+
+pub async fn page_handler(
+    State(ctx): State<AppContext>,
+    pagination: PaginationParams,
+) -> Result<impl IntoResponse> {{
+    let page = fetch_page(&ctx.db, pagination.page()).await?;
+    SseFragment::new({pascal}ListFragment {{ page }})
+}}
 "#
     );
 
@@ -324,24 +334,145 @@ fn write_show_template(base: &Path, snake: &str, pascal: &str) -> Result<(), Str
     write_file(&path, &content)
 }
 
-/// Writes the index template for a scaffold (field-aware variant).
+/// Writes the index template for a scaffold with form and list includes.
 fn write_scaffold_index_template(
     base: &Path,
     snake: &str,
     pascal: &str,
     _fields: &[FieldDef],
 ) -> Result<(), String> {
-    write_index_template(base, snake, pascal)
+    let dir = base.join(format!("templates/pages/{snake}"));
+    let path = dir.join("index.html");
+    let content = format!(
+        r##"{{% extends "layouts/app.html" %}}
+{{% block title %}}{pascal} List{{% endblock %}}
+{{% block content %}}
+<main class="min-h-screen flex justify-center px-4 pt-16 pb-12 sm:pt-24">
+  <div class="w-full max-w-lg">
+    <h1 class="text-lg font-medium text-zinc-200 mb-6">{pascal}s</h1>
+
+    {{% include "fragments/{snake}/form.html" %}}
+    {{% include "fragments/{snake}/list.html" %}}
+  </div>
+</main>
+{{% endblock %}}
+"##
+    );
+
+    ensure_dir_exists(&dir)?;
+    write_file(&path, &content)
 }
 
-/// Writes the show template for a scaffold (field-aware variant).
+/// Writes the show template for a scaffold with edit form and delete button.
 fn write_scaffold_show_template(
     base: &Path,
     snake: &str,
     pascal: &str,
-    _fields: &[FieldDef],
+    fields: &[FieldDef],
 ) -> Result<(), String> {
-    write_show_template(base, snake, pascal)
+    let dir = base.join(format!("templates/pages/{snake}"));
+    let path = dir.join("show.html");
+    let plural = format!("{snake}s");
+
+    let signal_attrs: String = fields
+        .iter()
+        .map(|f| match f.field_type {
+            FieldType::String => {
+                format!(
+                    "\n      data-signals-{}=\"'{{{{{{ item.{} }}}}}}'\"",
+                    f.name, f.name
+                )
+            }
+            _ => {
+                format!(
+                    "\n      data-signals-{}=\"{{{{{{ item.{} }}}}}}\"",
+                    f.name, f.name
+                )
+            }
+        })
+        .collect();
+
+    let input_fields: String = fields
+        .iter()
+        .map(|f| {
+            let label = capitalize_field_name(&f.name);
+            match f.field_type {
+                FieldType::Bool => format!(
+                    r#"
+      <label class="flex items-center gap-2 text-[13px] text-zinc-400">
+        <input type="checkbox" data-bind:{name}
+               class="rounded border-zinc-700 bg-zinc-900/40">
+        {label}
+      </label>"#,
+                    name = f.name
+                ),
+                FieldType::Int | FieldType::Float => format!(
+                    r#"
+      <input
+        type="number"
+        data-bind:{name}
+        placeholder="{label}"
+        autocomplete="off"
+        class="w-full px-3 py-2.5 text-[13px] rounded-lg border border-zinc-800/80
+               bg-zinc-900/40 text-zinc-200 placeholder-zinc-600
+               focus:outline-none focus:border-zinc-700 transition-colors"
+      >"#,
+                    name = f.name
+                ),
+                FieldType::String => format!(
+                    r#"
+      <input
+        type="text"
+        data-bind:{name}
+        placeholder="{label}"
+        autocomplete="off"
+        class="w-full px-3 py-2.5 text-[13px] rounded-lg border border-zinc-800/80
+               bg-zinc-900/40 text-zinc-200 placeholder-zinc-600
+               focus:outline-none focus:border-zinc-700 transition-colors"
+      >"#,
+                    name = f.name
+                ),
+            }
+        })
+        .collect();
+
+    let content = format!(
+        r##"{{% extends "layouts/app.html" %}}
+{{% block title %}}{pascal} #{{{{{{ item.id }}}}}}{{% endblock %}}
+{{% block content %}}
+<main class="min-h-screen flex justify-center px-4 pt-16 pb-12 sm:pt-24">
+  <div class="w-full max-w-lg">
+    <a href="/{plural}" class="text-[12px] text-zinc-600 hover:text-zinc-400 transition-colors">&larr; Back to {snake}s</a>
+
+    <h1 class="text-lg font-medium text-zinc-200 mt-4 mb-6">{pascal} #{{{{{{ item.id }}}}}}</h1>
+
+    <form
+      class="space-y-3"{signal_attrs}
+      data-on:submit="@put('/{plural}/{{{{{{ item.id }}}}}}')"
+    >{input_fields}
+
+      <div class="flex gap-2 pt-2">
+        <button type="submit"
+          class="flex-1 px-4 py-2.5 text-[13px] rounded-lg border border-zinc-800/80
+                 bg-zinc-900/40 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700
+                 transition-colors cursor-pointer"
+        >Save</button>
+        <button type="button"
+          data-on:click="@delete('/{plural}/{{{{{{ item.id }}}}}}')"
+          class="px-4 py-2.5 text-[13px] rounded-lg border border-red-900/40
+                 bg-red-950/20 text-red-400/60 hover:text-red-400 hover:border-red-800/60
+                 transition-colors cursor-pointer"
+        >Delete</button>
+      </div>
+    </form>
+  </div>
+</main>
+{{% endblock %}}
+"##
+    );
+
+    ensure_dir_exists(&dir)?;
+    write_file(&path, &content)
 }
 
 /// Writes the model Rust source file with SQLx derives and CRUD methods.
@@ -522,21 +653,181 @@ fn write_migration_file(
     write_file(&path, &content)
 }
 
-/// Writes a Datastar-ready list fragment template.
-fn write_list_fragment(base: &Path, snake: &str, _fields: &[FieldDef]) -> Result<(), String> {
+/// Writes the create form fragment with Datastar signal bindings.
+fn write_form_fragment(
+    base: &Path,
+    snake: &str,
+    pascal: &str,
+    fields: &[FieldDef],
+) -> Result<(), String> {
     let dir = base.join(format!("templates/fragments/{snake}"));
-    let path = dir.join("list.html");
+    let path = dir.join("form.html");
+    let plural = format!("{snake}s");
+
+    let signal_attrs: String = fields
+        .iter()
+        .map(|f| match f.field_type {
+            FieldType::String => format!("\n  data-signals-{}=\"''\"", f.name),
+            FieldType::Bool => format!("\n  data-signals-{}=\"false\"", f.name),
+            FieldType::Int => format!("\n  data-signals-{}=\"0\"", f.name),
+            FieldType::Float => format!("\n  data-signals-{}=\"0\"", f.name),
+        })
+        .collect();
+
+    let input_fields: String = fields
+        .iter()
+        .map(|f| {
+            let label = capitalize_field_name(&f.name);
+            match f.field_type {
+                FieldType::Bool => format!(
+                    r#"
+  <label class="flex items-center gap-2 text-[13px] text-zinc-400">
+    <input type="checkbox" data-bind:{name}
+           class="rounded border-zinc-700 bg-zinc-900/40">
+    {label}
+  </label>"#,
+                    name = f.name
+                ),
+                FieldType::Int | FieldType::Float => format!(
+                    r#"
+  <input
+    type="number"
+    data-bind:{name}
+    placeholder="{label}"
+    autocomplete="off"
+    class="w-full px-3 py-2.5 text-[13px] rounded-lg border border-zinc-800/80
+           bg-zinc-900/40 text-zinc-200 placeholder-zinc-600
+           focus:outline-none focus:border-zinc-700 transition-colors"
+  >"#,
+                    name = f.name
+                ),
+                FieldType::String => format!(
+                    r#"
+  <input
+    type="text"
+    data-bind:{name}
+    placeholder="{label}"
+    autocomplete="off"
+    class="w-full px-3 py-2.5 text-[13px] rounded-lg border border-zinc-800/80
+           bg-zinc-900/40 text-zinc-200 placeholder-zinc-600
+           focus:outline-none focus:border-zinc-700 transition-colors"
+  >"#,
+                    name = f.name
+                ),
+            }
+        })
+        .collect();
+
     let content = format!(
-        r#"<div id="{snake}-list">
-    {{% for item in items %}}
-    <div>{{{{ item.id }}}}</div>
-    {{% endfor %}}
-</div>
-"#
+        r##"<form
+  class="mb-6 space-y-3"{signal_attrs}
+  data-on:submit="@post('/{plural}')"
+>{input_fields}
+
+  <button type="submit"
+    class="w-full px-4 py-2.5 text-[13px] rounded-lg border border-zinc-800/80
+           bg-zinc-900/40 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700
+           transition-colors cursor-pointer"
+  >Create {pascal}</button>
+</form>
+"##
     );
 
     ensure_dir_exists(&dir)?;
     write_file(&path, &content)
+}
+
+/// Writes a Datastar-ready list fragment with pagination.
+fn write_list_fragment(base: &Path, snake: &str, _fields: &[FieldDef]) -> Result<(), String> {
+    let dir = base.join(format!("templates/fragments/{snake}"));
+    let path = dir.join("list.html");
+    let plural = format!("{snake}s");
+
+    let content = format!(
+        r##"<div id="{snake}-list">
+{{% if page.items.is_empty() %}}
+  <div class="border border-zinc-800/80 rounded-lg bg-zinc-900/40 px-4 py-8">
+    <p class="text-zinc-600 text-[13px] text-center">No {snake}s yet.</p>
+  </div>
+{{% else %}}
+  <div class="border border-zinc-800/80 rounded-lg bg-zinc-900/40 divide-y divide-zinc-800/60">
+  {{% for item in page.items %}}
+    {{% include "fragments/{snake}/item.html" %}}
+  {{% endfor %}}
+  </div>
+
+  <div class="mt-4 flex items-center justify-between text-[12px] text-zinc-600">
+    <span>{{{{{{ page.total }}}}}} {snake}{{% if page.total != 1 %}}s{{% endif %}}</span>
+    <div class="flex items-center gap-2">
+      {{% if page.has_prev %}}
+      <button
+        data-on:click="@get('/{plural}/page?page={{{{{{ page.page - 1 }}}}}}')"
+        class="px-2 py-1 rounded border border-zinc-800/80 hover:border-zinc-700
+               text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer"
+      >&larr; Prev</button>
+      {{% endif %}}
+      <span class="text-zinc-500">{{{{{{ page.page }}}}}} / {{{{{{ page.total_pages }}}}}}</span>
+      {{% if page.has_next %}}
+      <button
+        data-on:click="@get('/{plural}/page?page={{{{{{ page.page + 1 }}}}}}')"
+        class="px-2 py-1 rounded border border-zinc-800/80 hover:border-zinc-700
+               text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer"
+      >Next &rarr;</button>
+      {{% endif %}}
+    </div>
+  </div>
+{{% endif %}}
+</div>
+"##
+    );
+
+    ensure_dir_exists(&dir)?;
+    write_file(&path, &content)
+}
+
+/// Writes the item fragment for a single record in the list.
+fn write_item_fragment(base: &Path, snake: &str, fields: &[FieldDef]) -> Result<(), String> {
+    let dir = base.join(format!("templates/fragments/{snake}"));
+    let path = dir.join("item.html");
+    let plural = format!("{snake}s");
+
+    let display_field = fields
+        .iter()
+        .find(|f| f.is_string())
+        .map(|f| f.name.as_str())
+        .unwrap_or("id");
+
+    let content = format!(
+        r##"<div class="flex items-center gap-3 px-4 py-3 group">
+  <a href="/{plural}/{{{{{{ item.id }}}}}}" class="flex-1 min-w-0">
+    <span class="text-[13px] text-zinc-300 truncate block">
+      {{{{{{ item.{display_field} }}}}}}
+    </span>
+  </a>
+  <button
+    data-on:click="@delete('/{plural}/{{{{{{ item.id }}}}}}?page={{{{{{ page.page }}}}}}')"
+    class="shrink-0 opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400
+           transition-all cursor-pointer p-0.5"
+  >
+    <svg class="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+    </svg>
+  </button>
+</div>
+"##
+    );
+
+    ensure_dir_exists(&dir)?;
+    write_file(&path, &content)
+}
+
+/// Capitalizes the first character and replaces underscores with spaces.
+fn capitalize_field_name(name: &str) -> String {
+    let mut s = name.replace('_', " ");
+    if let Some(first) = s.get_mut(..1) {
+        first.make_ascii_uppercase();
+    }
+    s
 }
 
 // --- Output helpers ---
@@ -560,6 +851,7 @@ fn print_scaffold_route_hints(snake: &str) {
     );
     println!("    .route(\"/{snake}\", get(controllers::{snake}::index))");
     println!("    .route(\"/{snake}\", post(controllers::{snake}::create))");
+    println!("    .route(\"/{snake}/page\", get(controllers::{snake}::page_handler))");
     println!("    .route(\"/{snake}/{{id}}\", get(controllers::{snake}::show))");
     println!("    .route(\"/{snake}/{{id}}\", put(controllers::{snake}::update))");
     println!("    .route(\"/{snake}/{{id}}\", delete(controllers::{snake}::destroy))");
@@ -682,7 +974,7 @@ mod tests {
         let fragment = fs::read_to_string(base.join("templates/fragments/product/list.html"))
             .expect("list fragment missing");
         assert!(fragment.contains("product-list"));
-        assert!(fragment.contains("item.id"));
+        assert!(fragment.contains("page.items"));
 
         let entries: Vec<_> = fs::read_dir(base.join("migrations"))
             .expect("migrations dir missing")
@@ -766,5 +1058,86 @@ mod tests {
         let result = generate_controller_in(base, "Item");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("already exists"));
+    }
+
+    #[test]
+    fn scaffold_index_includes_form_and_list() {
+        let tmp = TempDir::new().expect("failed to create temp dir");
+        let base = tmp.path();
+        let fields = vec![
+            FieldDef {
+                name: "title".into(),
+                field_type: FieldType::String,
+            },
+            FieldDef {
+                name: "active".into(),
+                field_type: FieldType::Bool,
+            },
+        ];
+
+        generate_scaffold_in(base, "Widget", &fields).expect("scaffold failed");
+
+        let index = fs::read_to_string(base.join("templates/pages/widget/index.html"))
+            .expect("index template missing");
+        assert!(index.contains("include \"fragments/widget/form.html\""));
+        assert!(index.contains("include \"fragments/widget/list.html\""));
+
+        let form = fs::read_to_string(base.join("templates/fragments/widget/form.html"))
+            .expect("form fragment missing");
+        assert!(form.contains("data-bind:title"));
+        assert!(form.contains("data-bind:active"));
+        assert!(form.contains("@post('/widgets')"));
+    }
+
+    #[test]
+    fn scaffold_list_and_item_fragments() {
+        let tmp = TempDir::new().expect("failed to create temp dir");
+        let base = tmp.path();
+        let fields = vec![FieldDef {
+            name: "title".into(),
+            field_type: FieldType::String,
+        }];
+
+        generate_scaffold_in(base, "Task", &fields).expect("scaffold failed");
+
+        let list = fs::read_to_string(base.join("templates/fragments/task/list.html"))
+            .expect("list fragment missing");
+        assert!(list.contains("task-list"));
+        assert!(list.contains("include \"fragments/task/item.html\""));
+        assert!(list.contains("page.has_prev"));
+        assert!(list.contains("page.has_next"));
+
+        let item = fs::read_to_string(base.join("templates/fragments/task/item.html"))
+            .expect("item fragment missing");
+        assert!(item.contains("item.title"));
+        assert!(item.contains("@delete("));
+    }
+
+    #[test]
+    fn scaffold_show_page_has_edit_form() {
+        let tmp = TempDir::new().expect("failed to create temp dir");
+        let base = tmp.path();
+        let fields = vec![
+            FieldDef {
+                name: "title".into(),
+                field_type: FieldType::String,
+            },
+            FieldDef {
+                name: "count".into(),
+                field_type: FieldType::Int,
+            },
+        ];
+
+        generate_scaffold_in(base, "Product", &fields).expect("scaffold failed");
+
+        let show = fs::read_to_string(base.join("templates/pages/product/show.html"))
+            .expect("show template missing");
+        assert!(show.contains("extends \"layouts/app.html\""));
+        assert!(show.contains("data-signals"));
+        assert!(show.contains("item.title"));
+        assert!(show.contains("item.count"));
+        assert!(show.contains("@put("));
+        assert!(show.contains("@delete("));
+        assert!(show.contains("href=\"/products\""));
     }
 }
