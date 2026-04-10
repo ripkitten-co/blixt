@@ -283,7 +283,13 @@ mod tests {
         // On other platforms, it should return a descriptive error.
         match result {
             Ok(platform) => {
-                let valid = ["macos-arm64", "macos-x64", "linux-arm64", "linux-x64", "windows-x64"];
+                let valid = [
+                    "macos-arm64",
+                    "macos-x64",
+                    "linux-arm64",
+                    "linux-x64",
+                    "windows-x64",
+                ];
                 assert!(valid.contains(&platform), "Unexpected platform: {platform}");
             }
             Err(msg) => {
