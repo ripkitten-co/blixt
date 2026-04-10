@@ -59,6 +59,7 @@ pub mod prelude {
     pub use crate::auth::{AuthUser, Claims, OptionalAuth};
     pub use crate::config::{Config, Environment};
     pub use crate::context::AppContext;
+    pub use crate::datastar::{DatastarSignals, SseFragment, SseResponse, SseSignals, SseStream};
     pub use crate::db::DbPool;
     pub use crate::error::{Error, Result};
     pub use crate::jobs::{Job, JobRunner, job_fn};
@@ -69,7 +70,7 @@ pub mod prelude {
     pub use axum::{
         Router,
         extract::{Path, Query, State},
-        response::IntoResponse,
+        response::{Html, IntoResponse},
         routing::{delete, get, post, put},
     };
     pub use serde::{Deserialize, Serialize};
