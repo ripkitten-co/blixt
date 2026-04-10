@@ -68,11 +68,15 @@ fn generate_model_in(base: &Path, name: &str) -> Result<(), String> {
 /// Scaffold generation rooted at `base`.
 fn generate_scaffold_in(base: &Path, name: &str) -> Result<(), String> {
     let snake = to_snake_case(name);
+    let pascal = to_pascal_case(name);
 
-    generate_controller_in(base, name)?;
     generate_model_in(base, name)?;
+    write_scaffold_controller_file(base, &snake, &pascal)?;
+    write_index_template(base, &snake, &pascal)?;
+    write_show_template(base, &snake, &pascal)?;
     write_list_fragment(base, &snake)?;
 
+    println!("  {} controller {snake}", style("created").green().bold());
     print_scaffold_route_hints(&snake);
     Ok(())
 }
@@ -106,6 +110,48 @@ pub struct {pascal}Show {{
 
 pub async fn show(Path(id): Path<String>) -> Result<{pascal}Show> {{
     Ok({pascal}Show {{ id }})
+}}
+"#
+    );
+
+    ensure_dir_exists(&dir)?;
+    write_file(&path, &content)
+}
+
+/// Writes a scaffold controller with database-backed CRUD actions.
+fn write_scaffold_controller_file(base: &Path, snake: &str, pascal: &str) -> Result<(), String> {
+    let dir = base.join("src/controllers");
+    let path = dir.join(format!("{snake}.rs"));
+    let content = format!(
+        r#"use blixt::prelude::*;
+use crate::models::{snake}::{pascal};
+
+#[derive(Template)]
+#[template(path = "pages/{snake}/index.html")]
+pub struct {pascal}Index {{
+    pub items: Vec<{pascal}>,
+}}
+
+pub async fn index(State(ctx): State<AppContext>) -> Result<impl IntoResponse> {{
+    let items = {pascal}::find_all(&ctx.db).await?;
+    Ok(Html({pascal}Index {{ items }}.render().map_err(|e| Error::Internal(e.to_string()))?))
+}}
+
+#[derive(Template)]
+#[template(path = "pages/{snake}/show.html")]
+pub struct {pascal}Show {{
+    pub item: {pascal},
+}}
+
+pub async fn show(State(ctx): State<AppContext>, Path(id): Path<i64>) -> Result<impl IntoResponse> {{
+    let item = {pascal}::find_by_id(&ctx.db, id).await?;
+    Ok(Html({pascal}Show {{ item }}.render().map_err(|e| Error::Internal(e.to_string()))?))
+}}
+
+pub async fn destroy(State(ctx): State<AppContext>, Path(id): Path<i64>) -> Result<impl IntoResponse> {{
+    {pascal}::delete(&ctx.db, id).await?;
+    let items = {pascal}::find_all(&ctx.db).await?;
+    Ok(SseFragment::new({pascal}Index {{ items }})?)
 }}
 "#
     );
@@ -148,10 +194,11 @@ fn write_show_template(base: &Path, snake: &str, pascal: &str) -> Result<(), Str
     write_file(&path, &content)
 }
 
-/// Writes the model Rust source file with SQLx derives.
+/// Writes the model Rust source file with SQLx derives and CRUD methods.
 fn write_model_file(base: &Path, snake: &str, pascal: &str) -> Result<(), String> {
     let dir = base.join("src/models");
     let path = dir.join(format!("{snake}.rs"));
+    let plural = format!("{snake}s");
     let content = format!(
         r#"use blixt::prelude::*;
 use sqlx::types::chrono::{{DateTime, Utc}};
@@ -161,6 +208,32 @@ pub struct {pascal} {{
     pub id: i64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}}
+
+impl {pascal} {{
+    /// Find a single record by primary key.
+    pub async fn find_by_id(pool: &DbPool, id: i64) -> Result<Self> {{
+        Ok(query_as!(Self, "SELECT id, created_at, updated_at FROM {plural} WHERE id = ?")
+            .bind(id)
+            .fetch_one(pool)
+            .await?)
+    }}
+
+    /// Fetch all records ordered by most recent first.
+    pub async fn find_all(pool: &DbPool) -> Result<Vec<Self>> {{
+        Ok(query_as!(Self, "SELECT id, created_at, updated_at FROM {plural} ORDER BY id DESC")
+            .fetch_all(pool)
+            .await?)
+    }}
+
+    /// Delete a record by primary key.
+    pub async fn delete(pool: &DbPool, id: i64) -> Result<()> {{
+        query!("DELETE FROM {plural} WHERE id = ?")
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }}
 }}
 "#
     );
@@ -295,6 +368,11 @@ mod tests {
         assert!(model.contains("pub id: i64"));
         assert!(model.contains("DateTime<Utc>"));
         assert!(model.contains("FromRow"));
+        assert!(model.contains("find_by_id"));
+        assert!(model.contains("find_all"));
+        assert!(model.contains("delete"));
+        assert!(model.contains("query_as!"));
+        assert!(model.contains("query!"));
 
         let entries: Vec<_> = fs::read_dir(base.join("migrations"))
             .expect("migrations dir missing")
@@ -327,6 +405,12 @@ mod tests {
         assert!(base.join("src/models/product.rs").exists());
         assert!(base.join("templates/pages/product/index.html").exists());
         assert!(base.join("templates/pages/product/show.html").exists());
+
+        let controller = fs::read_to_string(base.join("src/controllers/product.rs"))
+            .expect("scaffold controller missing");
+        assert!(controller.contains("find_all"));
+        assert!(controller.contains("find_by_id"));
+        assert!(controller.contains("State(ctx)"));
 
         let fragment = fs::read_to_string(base.join("templates/fragments/product/list.html"))
             .expect("list fragment missing");
