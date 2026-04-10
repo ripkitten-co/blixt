@@ -80,21 +80,29 @@ async fn create(
         .signals(&json!({"title": ""}))
 }
 
-async fn toggle(State(ctx): State<AppContext>, Path(id): Path<i64>) -> Result<impl IntoResponse> {
+async fn toggle(
+    State(ctx): State<AppContext>,
+    Path(id): Path<i64>,
+    pagination: PaginationParams,
+) -> Result<impl IntoResponse> {
     query!("UPDATE todos SET completed = NOT completed WHERE id = ?")
         .bind(id)
         .execute(&ctx.db)
         .await?;
-    let page = fetch_page(&ctx.db, 1).await?;
+    let page = fetch_page(&ctx.db, pagination.page()).await?;
     SseFragment::new(TodoListFragment { page })
 }
 
-async fn remove(State(ctx): State<AppContext>, Path(id): Path<i64>) -> Result<impl IntoResponse> {
+async fn remove(
+    State(ctx): State<AppContext>,
+    Path(id): Path<i64>,
+    pagination: PaginationParams,
+) -> Result<impl IntoResponse> {
     query!("DELETE FROM todos WHERE id = ?")
         .bind(id)
         .execute(&ctx.db)
         .await?;
-    let page = fetch_page(&ctx.db, 1).await?;
+    let page = fetch_page(&ctx.db, pagination.page()).await?;
     SseFragment::new(TodoListFragment { page })
 }
 
