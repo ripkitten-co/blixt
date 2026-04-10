@@ -24,7 +24,6 @@ impl FieldType {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DbDialect {
     Postgres,
@@ -37,7 +36,6 @@ pub struct FieldDef {
     pub field_type: FieldType,
 }
 
-#[allow(dead_code)]
 impl FieldDef {
     pub fn rust_type(&self) -> &'static str {
         match self.field_type {
@@ -93,7 +91,6 @@ pub fn parse_fields(args: &[&str]) -> Result<Vec<FieldDef>, String> {
     Ok(fields)
 }
 
-#[allow(dead_code)]
 pub fn detect_dialect_from_url(url: &str) -> DbDialect {
     if url.starts_with("sqlite") {
         DbDialect::Sqlite
@@ -102,7 +99,6 @@ pub fn detect_dialect_from_url(url: &str) -> DbDialect {
     }
 }
 
-#[allow(dead_code)]
 pub fn detect_dialect() -> DbDialect {
     dotenvy::dotenv().ok();
     match std::env::var("DATABASE_URL") {

@@ -273,7 +273,7 @@ pub async fn update(
     let html = {pascal}Show {{ item }}
         .render()
         .map_err(|e| Error::Internal(e.to_string()))?;
-    SseResponse::new().patch_html(&html)
+    Ok(SseResponse::new().patch_html(&html))
 }}
 
 pub async fn destroy(
@@ -845,16 +845,17 @@ fn print_controller_route_hint(snake: &str) {
 
 /// Prints full CRUD route registration hints after scaffold generation.
 fn print_scaffold_route_hints(snake: &str) {
+    let plural = format!("{snake}s");
     println!(
         "\n  {} Add CRUD routes to src/main.rs:",
         style("next:").cyan().bold()
     );
-    println!("    .route(\"/{snake}\", get(controllers::{snake}::index))");
-    println!("    .route(\"/{snake}\", post(controllers::{snake}::create))");
-    println!("    .route(\"/{snake}/page\", get(controllers::{snake}::page_handler))");
-    println!("    .route(\"/{snake}/{{id}}\", get(controllers::{snake}::show))");
-    println!("    .route(\"/{snake}/{{id}}\", put(controllers::{snake}::update))");
-    println!("    .route(\"/{snake}/{{id}}\", delete(controllers::{snake}::destroy))");
+    println!("    .route(\"/{plural}\", get(controllers::{snake}::index))");
+    println!("    .route(\"/{plural}\", post(controllers::{snake}::create))");
+    println!("    .route(\"/{plural}/page\", get(controllers::{snake}::page_handler))");
+    println!("    .route(\"/{plural}/{{id}}\", get(controllers::{snake}::show))");
+    println!("    .route(\"/{plural}/{{id}}\", put(controllers::{snake}::update))");
+    println!("    .route(\"/{plural}/{{id}}\", delete(controllers::{snake}::destroy))");
 }
 
 // --- Filesystem utilities ---
