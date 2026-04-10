@@ -1,4 +1,6 @@
 mod commands;
+#[allow(dead_code)]
+mod fields;
 mod tailwind;
 mod validate;
 
