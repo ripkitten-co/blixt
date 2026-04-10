@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use chrono::Utc;
 use console::style;
 
+use crate::fields::{FieldDef, FieldType, parse_fields};
 use crate::validate::{to_pascal_case, to_snake_case};
 
 /// Generates a controller with Askama template views.
@@ -19,18 +20,28 @@ pub fn generate_controller(name: &str) -> Result<(), String> {
 ///
 /// Creates the model Rust file with SQLx derive macros and a
 /// timestamped SQL migration for creating the table.
-pub fn generate_model(name: &str) -> Result<(), String> {
+pub fn generate_model(name: &str, field_args: &[&str]) -> Result<(), String> {
     let base = current_dir()?;
-    generate_model_in(&base, name)
+    let fields = parse_fields(field_args)?;
+    generate_model_in(&base, name, &fields)
 }
 
 /// Generates a full CRUD scaffold: controller, model, and list fragment.
 ///
 /// Combines controller and model generation, then adds a Datastar-ready
 /// list fragment template for streaming updates.
-pub fn generate_scaffold(name: &str) -> Result<(), String> {
+pub fn generate_scaffold(name: &str, field_args: &[&str]) -> Result<(), String> {
     let base = current_dir()?;
-    generate_scaffold_in(&base, name)
+    let fields = parse_fields(field_args)?;
+    let fields = if fields.is_empty() {
+        vec![FieldDef {
+            name: "name".into(),
+            field_type: FieldType::String,
+        }]
+    } else {
+        fields
+    };
+    generate_scaffold_in(&base, name, &fields)
 }
 
 // --- Path-aware implementations (testable without chdir) ---
@@ -49,13 +60,13 @@ fn generate_controller_in(base: &Path, name: &str) -> Result<(), String> {
 }
 
 /// Model generation rooted at `base`.
-fn generate_model_in(base: &Path, name: &str) -> Result<(), String> {
+fn generate_model_in(base: &Path, name: &str, fields: &[FieldDef]) -> Result<(), String> {
     let snake = to_snake_case(name);
     let pascal = to_pascal_case(name);
     let plural = format!("{snake}s");
 
-    write_model_file(base, &snake, &pascal)?;
-    write_migration_file(base, &snake, &plural)?;
+    write_model_file(base, &snake, &pascal, fields)?;
+    write_migration_file(base, &snake, &plural, fields)?;
 
     println!(
         "  {} model {} and migration for {plural}",
@@ -66,15 +77,15 @@ fn generate_model_in(base: &Path, name: &str) -> Result<(), String> {
 }
 
 /// Scaffold generation rooted at `base`.
-fn generate_scaffold_in(base: &Path, name: &str) -> Result<(), String> {
+fn generate_scaffold_in(base: &Path, name: &str, fields: &[FieldDef]) -> Result<(), String> {
     let snake = to_snake_case(name);
     let pascal = to_pascal_case(name);
 
-    generate_model_in(base, name)?;
-    write_scaffold_controller_file(base, &snake, &pascal)?;
-    write_index_template(base, &snake, &pascal)?;
-    write_show_template(base, &snake, &pascal)?;
-    write_list_fragment(base, &snake)?;
+    generate_model_in(base, name, fields)?;
+    write_scaffold_controller_file(base, &snake, &pascal, fields)?;
+    write_scaffold_index_template(base, &snake, &pascal, fields)?;
+    write_scaffold_show_template(base, &snake, &pascal, fields)?;
+    write_list_fragment(base, &snake, fields)?;
 
     println!("  {} controller {snake}", style("created").green().bold());
     print_scaffold_route_hints(&snake);
@@ -119,7 +130,12 @@ pub async fn show(Path(id): Path<String>) -> Result<{pascal}Show> {{
 }
 
 /// Writes a scaffold controller with database-backed CRUD actions.
-fn write_scaffold_controller_file(base: &Path, snake: &str, pascal: &str) -> Result<(), String> {
+fn write_scaffold_controller_file(
+    base: &Path,
+    snake: &str,
+    pascal: &str,
+    _fields: &[FieldDef],
+) -> Result<(), String> {
     let dir = base.join("src/controllers");
     let path = dir.join(format!("{snake}.rs"));
     let content = format!(
@@ -194,8 +210,33 @@ fn write_show_template(base: &Path, snake: &str, pascal: &str) -> Result<(), Str
     write_file(&path, &content)
 }
 
+/// Writes the index template for a scaffold (field-aware variant).
+fn write_scaffold_index_template(
+    base: &Path,
+    snake: &str,
+    pascal: &str,
+    _fields: &[FieldDef],
+) -> Result<(), String> {
+    write_index_template(base, snake, pascal)
+}
+
+/// Writes the show template for a scaffold (field-aware variant).
+fn write_scaffold_show_template(
+    base: &Path,
+    snake: &str,
+    pascal: &str,
+    _fields: &[FieldDef],
+) -> Result<(), String> {
+    write_show_template(base, snake, pascal)
+}
+
 /// Writes the model Rust source file with SQLx derives and CRUD methods.
-fn write_model_file(base: &Path, snake: &str, pascal: &str) -> Result<(), String> {
+fn write_model_file(
+    base: &Path,
+    snake: &str,
+    pascal: &str,
+    _fields: &[FieldDef],
+) -> Result<(), String> {
     let dir = base.join("src/models");
     let path = dir.join(format!("{snake}.rs"));
     let plural = format!("{snake}s");
@@ -243,7 +284,12 @@ impl {pascal} {{
 }
 
 /// Writes a timestamped SQL migration file.
-fn write_migration_file(base: &Path, snake: &str, plural: &str) -> Result<(), String> {
+fn write_migration_file(
+    base: &Path,
+    snake: &str,
+    plural: &str,
+    _fields: &[FieldDef],
+) -> Result<(), String> {
     let timestamp = Utc::now().format("%Y%m%d%H%M%S");
     let dir = base.join("migrations");
     let path = dir.join(format!("{timestamp}_create_{snake}s.sql"));
@@ -261,7 +307,7 @@ fn write_migration_file(base: &Path, snake: &str, plural: &str) -> Result<(), St
 }
 
 /// Writes a Datastar-ready list fragment template.
-fn write_list_fragment(base: &Path, snake: &str) -> Result<(), String> {
+fn write_list_fragment(base: &Path, snake: &str, _fields: &[FieldDef]) -> Result<(), String> {
     let dir = base.join(format!("templates/fragments/{snake}"));
     let path = dir.join("list.html");
     let content = format!(
@@ -360,7 +406,7 @@ mod tests {
         let tmp = TempDir::new().expect("failed to create temp dir");
         let base = tmp.path();
 
-        generate_model_in(base, "User").expect("generate_model_in failed");
+        generate_model_in(base, "User", &[]).expect("generate_model_in failed");
 
         let model =
             fs::read_to_string(base.join("src/models/user.rs")).expect("model file missing");
@@ -399,7 +445,12 @@ mod tests {
         let tmp = TempDir::new().expect("failed to create temp dir");
         let base = tmp.path();
 
-        generate_scaffold_in(base, "Product").expect("generate_scaffold_in failed");
+        let default_fields = vec![FieldDef {
+            name: "name".into(),
+            field_type: FieldType::String,
+        }];
+        generate_scaffold_in(base, "Product", &default_fields)
+            .expect("generate_scaffold_in failed");
 
         assert!(base.join("src/controllers/product.rs").exists());
         assert!(base.join("src/models/product.rs").exists());
