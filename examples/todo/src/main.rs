@@ -1,7 +1,8 @@
 use blixt::prelude::*;
+use blixt::validate::Validator;
 use serde_json::json;
 
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 struct Todo {
     id: i64,
     title: String,
@@ -12,6 +13,7 @@ struct Todo {
 #[template(path = "pages/home.html")]
 struct HomePage {
     todos: Vec<Todo>,
+    page: Paginated<Todo>,
 }
 
 #[derive(Template)]
@@ -29,9 +31,18 @@ async fn fetch_todos(pool: &DbPool) -> Result<Vec<Todo>> {
     .await?)
 }
 
-async fn index(State(ctx): State<AppContext>) -> Result<impl IntoResponse> {
-    let todos = fetch_todos(&ctx.db).await?;
-    let html = HomePage { todos }
+async fn index(
+    State(ctx): State<AppContext>,
+    pagination: PaginationParams,
+) -> Result<impl IntoResponse> {
+    let page = Paginated::<Todo>::query(
+        "SELECT id, title, completed FROM todos ORDER BY id DESC",
+        &ctx.db,
+        &pagination,
+    )
+    .await?;
+    let todos = page.items.clone();
+    let html = HomePage { todos, page }
         .render()
         .map_err(|e| Error::Internal(e.to_string()))?;
     Ok(Html(html))
@@ -42,10 +53,10 @@ async fn create(
     signals: DatastarSignals,
 ) -> Result<impl IntoResponse> {
     let title: String = signals.get("title")?;
+    let mut v = Validator::new();
+    v.str_field(&title, "title").not_empty().max_length(255);
+    v.check()?;
     let title = title.trim().to_owned();
-    if title.is_empty() {
-        return SseResponse::new().signals(&json!({"title": ""}));
-    }
     query!("INSERT INTO todos (title) VALUES (?)")
         .bind(&title)
         .execute(&ctx.db)

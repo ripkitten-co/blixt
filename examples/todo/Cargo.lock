@@ -2566,6 +2566,7 @@ version = "0.1.0"
 dependencies = [
  "askama",
  "blixt",
+ "serde",
  "serde_json",
  "sqlx",
  "tokio",

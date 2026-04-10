@@ -34,6 +34,13 @@
 
     {% include "fragments/todo_list.html" %}
 
+    {% if page.total > 0 %}
+    <div class="mt-4 flex items-center justify-between text-[12px] text-zinc-600">
+      <span>{{ page.total }} {% if page.total == 1 %}todo{% else %}todos{% endif %}</span>
+      <span>Page {{ page.page }} of {{ page.total_pages }}</span>
+    </div>
+    {% endif %}
+
   </div>
 </main>
 {% endblock %}
