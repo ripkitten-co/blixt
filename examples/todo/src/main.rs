@@ -21,11 +21,12 @@ struct TodoListFragment {
 }
 
 async fn fetch_todos(pool: &DbPool) -> Result<Vec<Todo>> {
-    Ok(
-        sqlx::query_as::<_, Todo>("SELECT id, title, completed FROM todos ORDER BY id DESC")
-            .fetch_all(pool)
-            .await?,
+    Ok(query_as!(
+        Todo,
+        "SELECT id, title, completed FROM todos ORDER BY id DESC"
     )
+    .fetch_all(pool)
+    .await?)
 }
 
 async fn index(State(ctx): State<AppContext>) -> Result<impl IntoResponse> {
@@ -45,7 +46,7 @@ async fn create(
     if title.is_empty() {
         return SseResponse::new().signals(&json!({"title": ""}));
     }
-    sqlx::query("INSERT INTO todos (title) VALUES (?)")
+    query!("INSERT INTO todos (title) VALUES (?)")
         .bind(&title)
         .execute(&ctx.db)
         .await?;
@@ -56,7 +57,7 @@ async fn create(
 }
 
 async fn toggle(State(ctx): State<AppContext>, Path(id): Path<i64>) -> Result<impl IntoResponse> {
-    sqlx::query("UPDATE todos SET completed = NOT completed WHERE id = ?")
+    query!("UPDATE todos SET completed = NOT completed WHERE id = ?")
         .bind(id)
         .execute(&ctx.db)
         .await?;
@@ -65,7 +66,7 @@ async fn toggle(State(ctx): State<AppContext>, Path(id): Path<i64>) -> Result<im
 }
 
 async fn remove(State(ctx): State<AppContext>, Path(id): Path<i64>) -> Result<impl IntoResponse> {
-    sqlx::query("DELETE FROM todos WHERE id = ?")
+    query!("DELETE FROM todos WHERE id = ?")
         .bind(id)
         .execute(&ctx.db)
         .await?;
@@ -86,9 +87,10 @@ async fn main() -> Result<()> {
     init_tracing()?;
     let config = Config::from_env()?;
     let pool = blixt::db::create_pool(&config).await?;
-    sqlx::migrate!("./migrations").run(&pool).await.map_err(|e| {
-        Error::Internal(format!("migration failed: {e}"))
-    })?;
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .map_err(|e| Error::Internal(format!("migration failed: {e}")))?;
     let ctx = AppContext::new(pool, config.clone());
     App::new(config)
         .router(routes().with_state(ctx))
