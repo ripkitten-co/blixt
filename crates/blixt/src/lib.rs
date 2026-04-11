@@ -39,6 +39,8 @@ pub mod datastar;
 pub mod db;
 /// Error types and HTTP status mapping.
 pub mod error;
+/// Flash messages and redirects.
+pub mod flash;
 /// Background job runner.
 pub mod jobs;
 /// Structured logging setup.
@@ -88,6 +90,7 @@ pub mod prelude {
     };
     pub use crate::db::DbPool;
     pub use crate::error::{Error, Result};
+    pub use crate::flash::{Flash, Redirect};
     pub use crate::jobs::{Job, JobRunner, job_fn};
     pub use crate::logging::init_tracing;
     pub use crate::mailer::{Mailer, MailerConfig};
