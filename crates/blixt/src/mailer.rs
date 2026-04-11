@@ -180,44 +180,7 @@ fn build_mailbox(name: &str, email: &str) -> crate::error::Result<Mailbox> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-    /// Sets environment variables for the duration of the closure, then
-    /// restores previous values. Serialized via `ENV_LOCK` to avoid races.
-    fn with_env_vars<F, R>(vars: &[(&str, Option<&str>)], f: F) -> R
-    where
-        F: FnOnce() -> R,
-    {
-        let _guard = ENV_LOCK.lock().expect("env lock poisoned");
-
-        let mut previous: Vec<(&str, Option<String>)> = Vec::new();
-        for &(key, value) in vars {
-            previous.push((key, std::env::var(key).ok()));
-            // SAFETY: protected by ENV_LOCK mutex; tests run serially
-            unsafe {
-                match value {
-                    Some(v) => std::env::set_var(key, v),
-                    None => std::env::remove_var(key),
-                }
-            }
-        }
-
-        let result = f();
-
-        for (key, prev) in previous {
-            // SAFETY: protected by ENV_LOCK mutex; restoring original values
-            unsafe {
-                match prev {
-                    Some(v) => std::env::set_var(key, v),
-                    None => std::env::remove_var(key),
-                }
-            }
-        }
-
-        result
-    }
+    use crate::test_helpers::with_env_vars;
 
     const ALL_MAILER_VARS: [&str; 6] = [
         "SMTP_HOST",
