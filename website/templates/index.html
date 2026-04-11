@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block title %}Blixt — Lightning-fast Rust Web Framework{% endblock %}
+{% block body %}
+<main>
+    <!-- Hero -->
+    <section class="flex flex-col items-center text-center px-4 pt-20 pb-16 sm:pt-28 sm:pb-24">
+        <img src="{{ get_url(path='logo.svg') }}" alt="Blixt" class="w-16 h-24 mb-6">
+        <h1 class="text-3xl sm:text-4xl font-bold text-zinc-100 tracking-tight mb-3">Blixt</h1>
+        <p class="text-lg text-zinc-400 max-w-md mb-2">Lightning-fast Rust web framework.</p>
+        <p class="text-sm text-zinc-500 max-w-lg mb-8">Compile-time safety. Zero JavaScript build steps.</p>
+        <div class="flex items-center gap-3">
+            <a href="{{ get_url(path='docs/getting-started/installation/') }}"
+               class="px-5 py-2.5 text-[13px] font-medium rounded-lg bg-amber-500 text-zinc-950
+                      hover:bg-amber-400 transition-colors">Get Started</a>
+            <a href="{{ config.extra.github_url }}"
+               class="px-5 py-2.5 text-[13px] font-medium rounded-lg border border-zinc-700
+                      text-zinc-300 hover:border-zinc-500 hover:text-zinc-100 transition-colors">GitHub</a>
+        </div>
+    </section>
+
+    <!-- Quick start -->
+    <section class="max-w-2xl mx-auto px-4 pb-16">
+        <pre class="bg-zinc-900/60 border border-zinc-800/80 text-[13px]"><code class="text-zinc-300"><span class="text-zinc-500">$</span> cargo install blixt-cli
+<span class="text-zinc-500">$</span> blixt new my_app
+<span class="text-zinc-500">$</span> cd my_app
+<span class="text-zinc-500">$</span> blixt dev</code></pre>
+    </section>
+
+    <!-- Why Blixt -->
+    <section class="max-w-5xl mx-auto px-4 pb-20">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="border border-zinc-800/80 rounded-lg bg-zinc-900/40 p-6">
+                <h3 class="text-sm font-medium text-zinc-200 mb-2">Compile-Time Safe</h3>
+                <p class="text-[13px] text-zinc-500 leading-relaxed">Templates, SQL queries, and routes checked at build time. Errors caught before your code ships.</p>
+            </div>
+            <div class="border border-zinc-800/80 rounded-lg bg-zinc-900/40 p-6">
+                <h3 class="text-sm font-medium text-zinc-200 mb-2">Zero JS Build Steps</h3>
+                <p class="text-[13px] text-zinc-500 leading-relaxed">Interactive UIs via Datastar SSE. Tailwind auto-downloaded. No Node.js, no webpack, no bundler.</p>
+            </div>
+            <div class="border border-zinc-800/80 rounded-lg bg-zinc-900/40 p-6">
+                <h3 class="text-sm font-medium text-zinc-200 mb-2">Batteries Included</h3>
+                <p class="text-[13px] text-zinc-500 leading-relaxed">Auth, CSRF, rate limiting, query builder, scaffolding, flash messages, forms, validation &mdash; all built in.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Stack -->
+    <section class="max-w-4xl mx-auto px-4 pb-20">
+        <h2 class="text-lg font-medium text-zinc-200 text-center mb-8">The Stack</h2>
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
+            <div class="border border-zinc-800/80 rounded-lg bg-zinc-900/40 p-4">
+                <div class="text-sm font-medium text-zinc-200 mb-1">Axum</div>
+                <div class="text-[12px] text-zinc-500">~700k req/s</div>
+            </div>
+            <div class="border border-zinc-800/80 rounded-lg bg-zinc-900/40 p-4">
+                <div class="text-sm font-medium text-zinc-200 mb-1">Askama</div>
+                <div class="text-[12px] text-zinc-500">Compile-time templates</div>
+            </div>
+            <div class="border border-zinc-800/80 rounded-lg bg-zinc-900/40 p-4">
+                <div class="text-sm font-medium text-zinc-200 mb-1">SQLx</div>
+                <div class="text-[12px] text-zinc-500">Type-safe SQL</div>
+            </div>
+            <div class="border border-zinc-800/80 rounded-lg bg-zinc-900/40 p-4">
+                <div class="text-sm font-medium text-zinc-200 mb-1">Datastar</div>
+                <div class="text-[12px] text-zinc-500">SSE interactivity</div>
+            </div>
+            <div class="border border-zinc-800/80 rounded-lg bg-zinc-900/40 p-4 col-span-2 sm:col-span-1">
+                <div class="text-sm font-medium text-zinc-200 mb-1">Tailwind v4</div>
+                <div class="text-[12px] text-zinc-500">Zero Node.js</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Code example -->
+    <section class="max-w-5xl mx-auto px-4 pb-20">
+        <h2 class="text-lg font-medium text-zinc-200 text-center mb-8">Clean, Predictable Code</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <div class="text-[12px] text-amber-500 font-medium mb-2 uppercase tracking-wider">Handler</div>
+                <pre class="bg-zinc-900/60 border border-zinc-800/80 text-[13px]"><code class="text-zinc-300"><span class="text-zinc-500">pub async fn</span> <span class="text-zinc-200">index</span>(
+    State(ctx): State&lt;AppContext&gt;,
+    pagination: PaginationParams,
+) -&gt; Result&lt;impl IntoResponse&gt; {
+    <span class="text-zinc-500">let</span> page = Select::from(<span class="text-amber-500">"posts"</span>)
+        .columns(COLUMNS)
+        .order_by(<span class="text-amber-500">"created_at"</span>, Desc)
+        .fetch_all::&lt;Post&gt;(&amp;ctx.db).<span class="text-zinc-500">await</span>?;
+    render!(PostIndex { page })
+}</code></pre>
+            </div>
+            <div>
+                <div class="text-[12px] text-amber-500 font-medium mb-2 uppercase tracking-wider">Scaffold</div>
+                <pre class="bg-zinc-900/60 border border-zinc-800/80 text-[13px]"><code class="text-zinc-300"><span class="text-zinc-500">$</span> blixt generate scaffold post \
+    title:string \
+    body:text \
+    published:bool
+
+<span class="text-green-400">created</span> model post and migration
+<span class="text-green-400">created</span> controller post
+
+<span class="text-cyan-400">next:</span> Add CRUD routes to src/main.rs:
+  .route(<span class="text-amber-500">"/posts"</span>, get(..::index))
+  .route(<span class="text-amber-500">"/posts"</span>, post(..::create))
+  .route(<span class="text-amber-500">"/posts/{id}"</span>, get(..::show))
+  .route(<span class="text-amber-500">"/posts/{id}"</span>, put(..::update))
+  .route(<span class="text-amber-500">"/posts/{id}"</span>, delete(..::destroy))</code></pre>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features -->
+    <section class="max-w-5xl mx-auto px-4 pb-20">
+        <h2 class="text-lg font-medium text-zinc-200 text-center mb-8">Everything You Need</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-[13px] max-w-3xl mx-auto">
+            <div class="flex items-start gap-2">
+                <span class="text-amber-500 mt-0.5">&#9889;</span>
+                <div><span class="text-zinc-200">render!()</span> <span class="text-zinc-500">&mdash; one-line template responses</span></div>
+            </div>
+            <div class="flex items-start gap-2">
+                <span class="text-amber-500 mt-0.5">&#9889;</span>
+                <div><span class="text-zinc-200">Query Builder</span> <span class="text-zinc-500">&mdash; Select, Insert, Update, Delete</span></div>
+            </div>
+            <div class="flex items-start gap-2">
+                <span class="text-amber-500 mt-0.5">&#9889;</span>
+                <div><span class="text-zinc-200">Form&lt;T&gt;</span> <span class="text-zinc-500">&mdash; form parsing with CSRF validation</span></div>
+            </div>
+            <div class="flex items-start gap-2">
+                <span class="text-amber-500 mt-0.5">&#9889;</span>
+                <div><span class="text-zinc-200">Flash &amp; Redirect</span> <span class="text-zinc-500">&mdash; cookie-based messages</span></div>
+            </div>
+            <div class="flex items-start gap-2">
+                <span class="text-amber-500 mt-0.5">&#9889;</span>
+                <div><span class="text-zinc-200">DatastarSignals</span> <span class="text-zinc-500">&mdash; SSE-based reactive UI</span></div>
+            </div>
+            <div class="flex items-start gap-2">
+                <span class="text-amber-500 mt-0.5">&#9889;</span>
+                <div><span class="text-zinc-200">JWT Auth</span> <span class="text-zinc-500">&mdash; algorithm-pinned, deny-by-default</span></div>
+            </div>
+            <div class="flex items-start gap-2">
+                <span class="text-amber-500 mt-0.5">&#9889;</span>
+                <div><span class="text-zinc-200">Validator</span> <span class="text-zinc-500">&mdash; type-safe, compile-time rule checks</span></div>
+            </div>
+            <div class="flex items-start gap-2">
+                <span class="text-amber-500 mt-0.5">&#9889;</span>
+                <div><span class="text-zinc-200">CSRF Protection</span> <span class="text-zinc-500">&mdash; double-submit cookie pattern</span></div>
+            </div>
+            <div class="flex items-start gap-2">
+                <span class="text-amber-500 mt-0.5">&#9889;</span>
+                <div><span class="text-zinc-200">Rate Limiting</span> <span class="text-zinc-500">&mdash; token-bucket with eviction</span></div>
+            </div>
+            <div class="flex items-start gap-2">
+                <span class="text-amber-500 mt-0.5">&#9889;</span>
+                <div><span class="text-zinc-200">Scaffold CLI</span> <span class="text-zinc-500">&mdash; full CRUD in one command</span></div>
+            </div>
+            <div class="flex items-start gap-2">
+                <span class="text-amber-500 mt-0.5">&#9889;</span>
+                <div><span class="text-zinc-200">Argon2id</span> <span class="text-zinc-500">&mdash; OWASP-compliant password hashing</span></div>
+            </div>
+            <div class="flex items-start gap-2">
+                <span class="text-amber-500 mt-0.5">&#9889;</span>
+                <div><span class="text-zinc-200">Background Jobs</span> <span class="text-zinc-500">&mdash; async with bounded concurrency</span></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Install CTA -->
+    <section class="text-center px-4 pb-20">
+        <pre class="inline-block bg-zinc-900/60 border border-zinc-800/80 rounded-lg px-6 py-3 text-[13px]"><code class="text-zinc-300">cargo install blixt-cli</code></pre>
+    </section>
+</main>
+{% endblock %}
