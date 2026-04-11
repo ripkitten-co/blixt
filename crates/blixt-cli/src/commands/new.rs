@@ -45,6 +45,7 @@ fn resolve_db_backend(db_arg: Option<DbBackend>) -> Result<DbBackend, String> {
 const DATASTAR_VERSION: &str = "v1.0.0-RC.8";
 const DATASTAR_URL: &str =
     "https://raw.githubusercontent.com/starfederation/datastar/v1.0.0-RC.8/bundles/datastar.js";
+const DATASTAR_SHA256: &str = "4d2f4b8aca053e4f5a7d891739cad09b57670dae75b3927630fc70f568b6038d";
 
 /// Logo SVG embedded at compile time from the repo root logo.svg
 const LOGO_SVG: &str = include_str!("../../logo.svg");
@@ -144,10 +145,22 @@ async fn download_datastar(project: &Path) -> Result<(), String> {
         return Err(format!("Datastar download failed: HTTP {}", resp.status()));
     }
     let body = resp
-        .text()
+        .bytes()
         .await
         .map_err(|e| format!("Failed to read Datastar response: {e}"))?;
-    write_file(project, "static/js/datastar.js", &body)
+
+    use sha2::{Digest, Sha256};
+    let actual = Sha256::digest(&body);
+    let actual_hex: String = actual.iter().map(|b| format!("{b:02x}")).collect();
+    if actual_hex != DATASTAR_SHA256 {
+        return Err(format!(
+            "Datastar checksum mismatch: expected {DATASTAR_SHA256}, got {actual_hex}"
+        ));
+    }
+
+    let text = String::from_utf8(body.to_vec())
+        .map_err(|e| format!("Datastar JS is not valid UTF-8: {e}"))?;
+    write_file(project, "static/js/datastar.js", &text)
 }
 
 async fn compile_tailwind(project: &Path) -> Result<(), String> {

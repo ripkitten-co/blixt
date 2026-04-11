@@ -1,6 +1,5 @@
 use blixt::prelude::*;
 use blixt::validate::Validator;
-use serde_json::json;
 
 const PER_PAGE: u32 = 5;
 
@@ -42,10 +41,7 @@ async fn index(
         &PaginationParams::new(pagination.page(), PER_PAGE),
     )
     .await?;
-    let html = HomePage { page }
-        .render()
-        .map_err(|e| Error::Internal(e.to_string()))?;
-    Ok(Html(html))
+    render!(HomePage { page })
 }
 
 async fn page_handler(
@@ -70,14 +66,14 @@ async fn create(
     v.str_field(&title, "title").not_empty().max_length(255);
     v.check()?;
     let title = title.trim().to_owned();
-    query!("INSERT INTO todos (title) VALUES (?)")
-        .bind(&title)
-        .execute(&ctx.db)
+    Insert::into("todos")
+        .set("title", title.as_str())
+        .execute_no_return(&ctx.db)
         .await?;
     let page = fetch_page(&ctx.db, 1).await?;
     SseResponse::new()
         .patch(TodoListFragment { page })?
-        .signals(&json!({"title": ""}))
+        .signals(&Signals::clear(&["title"]))
 }
 
 async fn toggle(
@@ -98,11 +94,14 @@ async fn remove(
     Path(id): Path<i64>,
     pagination: PaginationParams,
 ) -> Result<impl IntoResponse> {
-    query!("DELETE FROM todos WHERE id = ?")
-        .bind(id)
+    Delete::from("todos")
+        .where_eq("id", id)
         .execute(&ctx.db)
         .await?;
-    let page = fetch_page(&ctx.db, pagination.page()).await?;
+    let mut page = fetch_page(&ctx.db, pagination.page()).await?;
+    if page.items.is_empty() && page.page > 1 {
+        page = fetch_page(&ctx.db, page.page - 1).await?;
+    }
     SseFragment::new(TodoListFragment { page })
 }
 
@@ -120,10 +119,7 @@ async fn main() -> Result<()> {
     init_tracing()?;
     let config = Config::from_env()?;
     let pool = blixt::db::create_pool(&config).await?;
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .map_err(|e| Error::Internal(format!("migration failed: {e}")))?;
+    blixt::db::migrate(&pool).await?;
     let ctx = AppContext::new(pool, config.clone());
     App::new(config)
         .router(routes().with_state(ctx))

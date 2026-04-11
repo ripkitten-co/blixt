@@ -5,7 +5,7 @@ use axum::response::{IntoResponse, Response};
 use uuid::Uuid;
 
 static X_CSRF_TOKEN: HeaderName = HeaderName::from_static("x-csrf-token");
-static CSRF_COOKIE_NAME: &str = "blixt_csrf";
+pub(crate) static CSRF_COOKIE_NAME: &str = "blixt_csrf";
 
 /// Axum middleware implementing CSRF protection via the double-submit cookie
 /// pattern with Origin header validation as defense-in-depth.
@@ -17,12 +17,25 @@ static CSRF_COOKIE_NAME: &str = "blixt_csrf";
 /// `x-csrf-token` request header matches the `blixt_csrf` cookie, and that
 /// the `Origin` header (if present) matches the `Host` header.
 ///
-/// Use with `axum::middleware::from_fn(csrf_protection)`.
-pub async fn csrf_protection(request: Request<axum::body::Body>, next: Next) -> Response {
+/// When `secure` is true the cookie includes the `Secure` flag, restricting
+/// transmission to HTTPS. Pass `true` in production.
+///
+/// ```rust,no_run
+/// use axum::middleware;
+/// use blixt::middleware::csrf::csrf_protection;
+///
+/// let router: axum::Router = axum::Router::new()
+///     .layer(middleware::from_fn(move |req, next| csrf_protection(req, next, true)));
+/// ```
+pub async fn csrf_protection(
+    request: Request<axum::body::Body>,
+    next: Next,
+    secure: bool,
+) -> Response {
     let method = request.method().clone();
 
     if is_safe_method(&method) {
-        return handle_safe_request(request, next).await;
+        return handle_safe_request(request, next, secure).await;
     }
 
     if !is_origin_valid(request.headers()) {
@@ -43,10 +56,14 @@ fn is_safe_method(method: &Method) -> bool {
 
 /// Handles safe requests by generating a CSRF token and attaching it to the
 /// response as both a cookie and a header.
-async fn handle_safe_request(request: Request<axum::body::Body>, next: Next) -> Response {
+async fn handle_safe_request(
+    request: Request<axum::body::Body>,
+    next: Next,
+    secure: bool,
+) -> Response {
     let token = generate_token();
     let mut response = next.run(request).await;
-    attach_csrf_token(&mut response, &token);
+    attach_csrf_token(&mut response, &token, secure);
     response
 }
 
@@ -97,7 +114,7 @@ fn is_csrf_token_valid(headers: &HeaderMap) -> bool {
 }
 
 /// Extracts a named cookie value from the Cookie header.
-fn extract_cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
+pub(crate) fn extract_cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
     headers
         .get(COOKIE)
         .and_then(|v| v.to_str().ok())
@@ -116,7 +133,7 @@ fn extract_cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
 ///
 /// While CSRF tokens are not long-term secrets, constant-time comparison is
 /// a defense-in-depth measure against timing side-channels.
-fn constant_time_eq(a: &str, b: &str) -> bool {
+pub(crate) fn constant_time_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
     }
@@ -135,8 +152,9 @@ fn generate_token() -> String {
 }
 
 /// Attaches the CSRF token as a response cookie and header.
-fn attach_csrf_token(response: &mut Response, token: &str) {
-    let cookie = format!("{CSRF_COOKIE_NAME}={token}; Path=/; SameSite=Strict");
+fn attach_csrf_token(response: &mut Response, token: &str, secure: bool) {
+    let secure_attr = if secure { "; Secure" } else { "" };
+    let cookie = format!("{CSRF_COOKIE_NAME}={token}; Path=/; SameSite=Strict{secure_attr}");
     if let Ok(value) = HeaderValue::from_str(&cookie) {
         response.headers_mut().append(SET_COOKIE, value);
     }
@@ -158,11 +176,17 @@ mod tests {
     use axum::routing::{get, post};
     use tower::ServiceExt;
 
-    fn test_router() -> Router {
+    fn test_router_with_secure(secure: bool) -> Router {
         Router::new()
             .route("/form", get(|| async { "form" }))
             .route("/submit", post(|| async { "ok" }))
-            .layer(axum::middleware::from_fn(csrf_protection))
+            .layer(axum::middleware::from_fn(move |req, next| {
+                csrf_protection(req, next, secure)
+            }))
+    }
+
+    fn test_router() -> Router {
+        test_router_with_secure(false)
     }
 
     #[tokio::test]
@@ -196,6 +220,37 @@ mod tests {
         assert!(cookie.contains(token));
         assert!(cookie.contains("SameSite=Strict"));
         assert!(cookie.contains("Path=/"));
+        assert!(
+            !cookie.contains("Secure"),
+            "non-production cookie must not contain Secure"
+        );
+    }
+
+    #[tokio::test]
+    async fn get_response_includes_secure_flag_in_production() {
+        let app = test_router_with_secure(true);
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/form")
+            .body(Body::empty())
+            .expect("failed to build request");
+
+        let response = app.oneshot(request).await.expect("request failed");
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let cookie = response
+            .headers()
+            .get(SET_COOKIE)
+            .expect("Set-Cookie header missing")
+            .to_str()
+            .expect("invalid utf-8");
+        assert!(
+            cookie.contains("; Secure"),
+            "production cookie must contain Secure flag"
+        );
+        assert!(cookie.contains("SameSite=Strict"));
     }
 
     #[tokio::test]

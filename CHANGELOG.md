@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-11
+
+### Added
+
+- `render!()` macro for ergonomic template responses — eliminates `.render().map_err(...)` + `Html(...)` boilerplate
+- `blixt::db::migrate()` one-line migration runner — replaces raw `sqlx::migrate!()` in user code
+- `Signals` builder for type-safe SSE signal payloads — `Signals::clear(&["title", "body"])` replaces `json!({})`
+- `Flash` messages with cookie-based read-once semantics — `Flash::success("Created")`, `Flash::error("Failed")`, `Flash::info("Note")`
+- `Redirect` response with optional flash attachment — `Redirect::to("/posts").with_flash(Flash::success("Done"))`
+- `Form<T>` extractor with automatic CSRF validation — checks `x-csrf-token` header or `_csrf` hidden form field
+- `CsrfToken` extractor for embedding CSRF tokens in HTML form templates
+- Type-safe query builder: `Select`, `Insert`, `Update`, `Delete` with dialect-aware SQL generation (`$1` for Postgres, `?` for SQLite)
+- `Select` supports `where_eq/gt/lt/gte/lte/ne`, `order_by`, `limit`, `offset`, `fetch_all/one/optional`
+- `Insert` with two-phase API: `.returning::<T>()` transitions to `InsertReturning<T>` for compile-time safety
+- `Update` with `set_timestamp()` for portable `CURRENT_TIMESTAMP` injection
+- `Delete` logs warning when executed without WHERE conditions
+- Scaffold CLI: `blixt generate scaffold post title:string body:text published:bool` with field arguments
+- Scaffold generates full CRUD: 6 handlers (index, show, create, update, destroy, page_handler) using Paginated, DatastarSignals, Validator, SseResponse, SseFragment
+- Scaffold generates 5 templates: index page, create form, paginated list, item row, show/edit page — all with Datastar signal bindings
+- Scaffold generates `models/mod.rs` and `controllers/mod.rs` with `pub mod` entries
+- DB-dialect-aware migration generation: Postgres (`BIGSERIAL`, `TIMESTAMPTZ`) vs SQLite (`INTEGER PRIMARY KEY AUTOINCREMENT`, `DATETIME`)
+- Pluralization helper for generated table names and routes (`category` → `categories`, `status` → `statuses`)
+- SQL reserved word validation in field name parser (rejects `select`, `order`, `table`, etc.)
+- Datastar SHA-256 checksum verification on download (supply chain security)
+- CSRF `Secure` flag on cookie in production environments
+- Trusted proxy configuration for rate limiter `X-Forwarded-For` handling
+- Rate limiter stale entry eviction to prevent memory exhaustion under IP rotation attacks
+- Type-safe `Validator`: `str_field()` returns `StrFieldValidator`, `i64_field()` returns `I64FieldValidator` — mismatched rules are compile errors
+- Feature-flagged database backends: `postgres` (default) and `sqlite` with `--db` flag on `blixt new`
+- `blixt db migrate/rollback/status` works for both Postgres and SQLite via `AnyPool`
+
+### Changed
+
+- Scaffold controller uses `render!()` macro instead of manual template rendering
+- Scaffold controller uses `Signals::clear()` instead of `serde_json::json!()`
+- Generated models use the query builder instead of raw SQL with manual placeholder management
+- Todo example updated to use `render!()`, `blixt::db::migrate()`, `Signals::clear()`, and query builder
+- Hello example updated to use `render!()` with proper error handling
+- Workspace dependencies centralized: `secrecy`, `uuid`, `chrono`, `sha2`, `dirs` moved to root `Cargo.toml`
+- Shared `with_env_vars` test helper extracted from duplicated code in config and mailer modules
+- `.env` loaded before reading `BLIXT_ENV` for correct configuration precedence
+
+### Fixed
+
+- Generated SQL uses dialect-aware placeholders (`$1` for Postgres, `?` for SQLite) — previously all models used `?` which broke Postgres
+- `blixt db` commands work with SQLite projects (was hardcoded to `PgPool`)
+- Scaffold route hints use plural paths matching template URLs (was singular)
+- Generated `update` handler wrapped in `Ok()` (was missing, causing compile error)
+- Delete on last page falls back to previous page instead of showing empty state
+
 ## [0.2.0] - 2026-04-10
 
 ### Added
@@ -77,6 +127,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `blixt db migrate/rollback/status` — database migration management
   - Automatic Tailwind v4 download with checksum verification
 
-[unreleased]: https://github.com/ripkitten-co/blixt/compare/v0.2.0...HEAD
+[unreleased]: https://github.com/ripkitten-co/blixt/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ripkitten-co/blixt/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ripkitten-co/blixt/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ripkitten-co/blixt/releases/tag/v0.1.0

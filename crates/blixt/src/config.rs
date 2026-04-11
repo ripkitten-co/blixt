@@ -54,13 +54,19 @@ impl fmt::Debug for Config {
 impl Config {
     /// Loads configuration from environment variables and `.env` files.
     ///
-    /// In non-production environments, `.env` is loaded via dotenvy first.
+    /// Loads `.env` via dotenvy unless `BLIXT_ENV=production` is already set
+    /// in the real environment. This lets `.env` files set `BLIXT_ENV` for
+    /// local development while production deploys skip `.env` entirely.
     pub fn from_env() -> crate::error::Result<Self> {
-        let blixt_env = Environment::from_env_var();
+        let skip_dotenv = std::env::var("BLIXT_ENV")
+            .map(|v| v.eq_ignore_ascii_case("production"))
+            .unwrap_or(false);
 
-        if blixt_env != Environment::Production {
+        if !skip_dotenv {
             dotenvy::dotenv().ok();
         }
+
+        let blixt_env = Environment::from_env_var();
 
         let host = std::env::var("HOST").unwrap_or_else(|_| default_host());
 
@@ -106,45 +112,7 @@ fn default_port() -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-    /// # Safety
-    /// Callers must ensure no other threads read env vars concurrently.
-    /// We enforce this via ENV_LOCK.
-    fn with_env_vars<F, R>(vars: &[(&str, Option<&str>)], f: F) -> R
-    where
-        F: FnOnce() -> R,
-    {
-        let _guard = ENV_LOCK.lock().expect("env lock poisoned");
-
-        let mut previous: Vec<(&str, Option<String>)> = Vec::new();
-        for &(key, value) in vars {
-            previous.push((key, std::env::var(key).ok()));
-            // SAFETY: protected by ENV_LOCK mutex; tests run serially
-            unsafe {
-                match value {
-                    Some(v) => std::env::set_var(key, v),
-                    None => std::env::remove_var(key),
-                }
-            }
-        }
-
-        let result = f();
-
-        for (key, prev) in previous {
-            // SAFETY: protected by ENV_LOCK mutex; restoring original values
-            unsafe {
-                match prev {
-                    Some(v) => std::env::set_var(key, v),
-                    None => std::env::remove_var(key),
-                }
-            }
-        }
-
-        result
-    }
+    use crate::test_helpers::with_env_vars;
 
     #[test]
     fn debug_output_redacts_secrets() {
@@ -210,6 +178,47 @@ mod tests {
             || {
                 let config = Config::from_env().expect("config should load");
                 assert_eq!(config.blixt_env, Environment::Development);
+            },
+        );
+    }
+
+    #[test]
+    fn dotenv_loads_before_reading_blixt_env() {
+        // When BLIXT_ENV is absent from the real environment, from_env() must
+        // attempt to load .env before reading BLIXT_ENV. We verify the path
+        // works by confirming development is the result (no .env file present
+        // in the test runner cwd, so BLIXT_ENV stays unset -> Development).
+        with_env_vars(
+            &[
+                ("BLIXT_ENV", None),
+                ("DATABASE_URL", None),
+                ("JWT_SECRET", None),
+                ("HOST", None),
+                ("PORT", None),
+            ],
+            || {
+                let config = Config::from_env().expect("config should load");
+                assert_eq!(config.blixt_env, Environment::Development);
+            },
+        );
+    }
+
+    #[test]
+    fn production_env_skips_dotenv_loading() {
+        // When BLIXT_ENV=production is in the real env, .env must NOT be loaded.
+        // We set a sentinel HOST value; if .env were loaded it could overwrite it.
+        with_env_vars(
+            &[
+                ("BLIXT_ENV", Some("production")),
+                ("HOST", Some("10.0.0.1")),
+                ("PORT", None),
+                ("DATABASE_URL", None),
+                ("JWT_SECRET", None),
+            ],
+            || {
+                let config = Config::from_env().expect("config should load");
+                assert_eq!(config.blixt_env, Environment::Production);
+                assert_eq!(config.host, "10.0.0.1");
             },
         );
     }

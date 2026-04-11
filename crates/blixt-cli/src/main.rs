@@ -1,4 +1,5 @@
 mod commands;
+mod fields;
 mod tailwind;
 mod validate;
 
@@ -47,9 +48,17 @@ enum GenerateKind {
     /// Generate a controller with views
     Controller { name: String },
     /// Generate a model with migration
-    Model { name: String },
+    Model {
+        name: String,
+        /// Field definitions (e.g. title:string body:text active:bool)
+        fields: Vec<String>,
+    },
     /// Generate full CRUD scaffold
-    Scaffold { name: String },
+    Scaffold {
+        name: String,
+        /// Field definitions (e.g. title:string body:text active:bool)
+        fields: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -112,16 +121,18 @@ fn main() {
                     std::process::exit(1);
                 }
             }
-            GenerateKind::Model { name } => {
+            GenerateKind::Model { name, fields } => {
                 let name = require_valid_name(&name);
-                if let Err(msg) = commands::generate::generate_model(&name) {
+                let field_strs: Vec<&str> = fields.iter().map(|s| s.as_str()).collect();
+                if let Err(msg) = commands::generate::generate_model(&name, &field_strs) {
                     eprintln!("{} {msg}", style("error:").red().bold());
                     std::process::exit(1);
                 }
             }
-            GenerateKind::Scaffold { name } => {
+            GenerateKind::Scaffold { name, fields } => {
                 let name = require_valid_name(&name);
-                if let Err(msg) = commands::generate::generate_scaffold(&name) {
+                let field_strs: Vec<&str> = fields.iter().map(|s| s.as_str()).collect();
+                if let Err(msg) = commands::generate::generate_scaffold(&name, &field_strs) {
                     eprintln!("{} {msg}", style("error:").red().bold());
                     std::process::exit(1);
                 }

@@ -4,7 +4,7 @@ members = ["crates/*"]
 exclude = ["examples/hello", "examples/todo"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/ripkitten-co/blixt"
@@ -23,7 +23,7 @@ tower-http = { version = "0.6", features = ["fs", "cors", "compression-gzip", "t
 askama = "0.15"
 
 # Database (compile-time checked SQL)
-sqlx = { version = "0.8", features = ["runtime-tokio", "migrate", "chrono", "uuid"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "migrate", "chrono", "uuid", "any"] }
 
 # Streams (async trait)
 futures-core = "0.3"
@@ -35,6 +35,8 @@ serde_json = "1"
 # Security
 argon2 = "0.5"
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
+secrecy = { version = "0.10", features = ["serde"] }
+uuid = { version = "1", features = ["v7", "serde"] }
 
 # Logging
 tracing = "0.1"
@@ -48,6 +50,19 @@ thiserror = "2"
 
 # Validation
 regex = "1"
+
+# Time
+chrono = "0.4"
+
+# Hashing
+sha2 = "0.11"
+
+# Filesystem
+dirs = "6"
+
+# URL encoding
+urlencoding = "2"
+serde_urlencoded = "0.7"
 
 # Email
 lettre = { version = "0.11", features = ["tokio1-native-tls", "builder"] }

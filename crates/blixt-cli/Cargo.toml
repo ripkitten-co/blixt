@@ -17,7 +17,7 @@ name = "blixt"
 path = "src/main.rs"
 
 [dependencies]
-blixt = { version = "0.2.0", path = "../blixt" }
+blixt = { version = "0.3.0", path = "../blixt" }
 clap.workspace = true
 tokio.workspace = true
 console.workspace = true
@@ -27,11 +27,11 @@ reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
-regex = "1.12.3"
-sha2 = "0.11"
-dirs = "6"
-chrono = "0.4"
-sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "sqlite", "migrate"] }
+regex.workspace = true
+sha2.workspace = true
+dirs.workspace = true
+chrono.workspace = true
+sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "sqlite", "migrate", "any"] }
 dotenvy.workspace = true
 notify.workspace = true
 
