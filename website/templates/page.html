@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}{{ page.title }} — Blixt Docs{% endblock %}
+{% block body %}
+<div class="max-w-6xl mx-auto flex px-4 sm:px-6">
+    <!-- Sidebar -->
+    <aside class="hidden lg:block w-56 shrink-0 pt-8 pr-6 border-r border-zinc-800/80">
+        <nav class="sticky top-20 text-[13px] space-y-6">
+            {% set docs = get_section(path="docs/_index.md") %}
+            {% for subsection_path in docs.subsections %}
+                {% set subsection = get_section(path=subsection_path) %}
+                <div>
+                    <div class="text-[11px] font-medium text-zinc-500 uppercase tracking-wider mb-2">{{ subsection.title }}</div>
+                    <ul class="space-y-1">
+                        {% for pg in subsection.pages | sort(attribute="weight") %}
+                        <li>
+                            <a href="{{ pg.permalink }}"
+                               class="block py-0.5 {% if pg.permalink == current_path %}text-amber-500{% else %}text-zinc-400 hover:text-zinc-200{% endif %} transition-colors">
+                                {{ pg.title }}
+                            </a>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endfor %}
+            <div>
+                <div class="text-[11px] font-medium text-zinc-500 uppercase tracking-wider mb-2">Reference</div>
+                <ul class="space-y-1">
+                    <li><a href="{{ config.extra.docs_rs_url }}" class="block py-0.5 text-zinc-400 hover:text-zinc-200 transition-colors">API Docs &rarr;</a></li>
+                </ul>
+            </div>
+        </nav>
+    </aside>
+
+    <!-- Content -->
+    <article class="flex-1 min-w-0 pt-8 pb-16 lg:pl-8">
+        <h1 class="text-2xl font-bold text-zinc-100 mb-6">{{ page.title }}</h1>
+        <div class="prose prose-invert prose-sm max-w-none
+                    prose-headings:text-zinc-200 prose-headings:font-medium
+                    prose-p:text-zinc-400 prose-p:leading-relaxed
+                    prose-a:text-amber-500 prose-a:no-underline hover:prose-a:text-amber-400
+                    prose-code:text-zinc-300 prose-code:bg-zinc-800/60 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-[13px]
+                    prose-pre:bg-zinc-900/60 prose-pre:border prose-pre:border-zinc-800/80
+                    prose-strong:text-zinc-200
+                    prose-li:text-zinc-400
+                    prose-th:text-zinc-300 prose-td:text-zinc-400">
+            {{ page.content | safe }}
+        </div>
+
+        <!-- Prev/Next -->
+        <div class="flex justify-between mt-12 pt-6 border-t border-zinc-800/80 text-[13px]">
+            {% if page.lower %}
+            <a href="{{ page.lower.permalink }}" class="text-zinc-400 hover:text-zinc-200 transition-colors">&larr; {{ page.lower.title }}</a>
+            {% else %}<span></span>{% endif %}
+            {% if page.higher %}
+            <a href="{{ page.higher.permalink }}" class="text-zinc-400 hover:text-zinc-200 transition-colors">{{ page.higher.title }} &rarr;</a>
+            {% else %}<span></span>{% endif %}
+        </div>
+    </article>
+
+    <!-- TOC -->
+    {% if page.toc %}
+    <aside class="hidden xl:block w-48 shrink-0 pt-8 pl-6">
+        <nav class="sticky top-20 text-[12px]">
+            <div class="text-[11px] font-medium text-zinc-500 uppercase tracking-wider mb-2">On this page</div>
+            <ul class="space-y-1">
+                {% for h in page.toc %}
+                <li><a href="#{{ h.id }}" class="text-zinc-500 hover:text-zinc-300 transition-colors">{{ h.title }}</a></li>
+                {% endfor %}
+            </ul>
+        </nav>
+    </aside>
+    {% endif %}
+</div>
+{% endblock %}

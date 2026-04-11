@@ -1,0 +1,15 @@
+base_url = "https://ripkitten-co.github.io/blixt"
+title = "Blixt"
+description = "Lightning-fast Rust web framework. Compile-time safety. Zero JavaScript build steps."
+compile_sass = false
+build_search_index = false
+generate_feeds = false
+
+[markdown]
+highlight_code = true
+highlight_theme = "base16-ocean-dark"
+
+[extra]
+github_url = "https://github.com/ripkitten-co/blixt"
+docs_rs_url = "https://docs.rs/blixt"
+crates_io_url = "https://crates.io/crates/blixt"
