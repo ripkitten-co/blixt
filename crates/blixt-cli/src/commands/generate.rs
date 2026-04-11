@@ -298,7 +298,10 @@ pub async fn destroy(
     pagination: PaginationParams,
 ) -> Result<impl IntoResponse> {{
     {pascal}::delete(&ctx.db, id).await?;
-    let page = fetch_page(&ctx.db, pagination.page()).await?;
+    let mut page = fetch_page(&ctx.db, pagination.page()).await?;
+    if page.items.is_empty() && page.page > 1 {{
+        page = fetch_page(&ctx.db, page.page - 1).await?;
+    }}
     SseFragment::new({pascal}ListFragment {{ page }})
 }}
 
