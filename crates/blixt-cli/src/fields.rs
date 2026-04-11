@@ -2,6 +2,15 @@ use crate::validate;
 
 const RESERVED_FIELD_NAMES: &[&str] = &["id", "created_at", "updated_at"];
 
+const SQL_RESERVED_WORDS: &[&str] = &[
+    "select", "from", "where", "table", "index", "key", "order", "group",
+    "create", "drop", "insert", "update", "delete", "alter", "join",
+    "inner", "outer", "left", "right", "on", "as", "and", "or", "not",
+    "null", "in", "between", "like", "having", "union", "limit", "offset",
+    "values", "set", "into", "column", "primary", "foreign", "references",
+    "constraint", "default", "check", "unique", "exists",
+];
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FieldType {
     String,
@@ -77,6 +86,10 @@ pub fn parse_fields(args: &[&str]) -> Result<Vec<FieldDef>, String> {
 
         if RESERVED_FIELD_NAMES.contains(&name.as_str()) {
             return Err(format!("Field name '{name}' is reserved"));
+        }
+
+        if SQL_RESERVED_WORDS.contains(&name.as_str()) {
+            return Err(format!("Field name '{name}' is a reserved SQL keyword"));
         }
 
         if seen_names.contains(&name) {
@@ -238,5 +251,21 @@ mod tests {
             detect_dialect_from_url("mysql://localhost/db"),
             DbDialect::Postgres
         );
+    }
+
+    #[test]
+    fn rejects_sql_reserved_words() {
+        assert!(parse_fields(&["select:string"]).is_err());
+        assert!(parse_fields(&["order:int"]).is_err());
+        assert!(parse_fields(&["table:bool"]).is_err());
+        assert!(parse_fields(&["index:string"]).is_err());
+    }
+
+    #[test]
+    fn accepts_common_column_names() {
+        assert!(parse_fields(&["name:string"]).is_ok());
+        assert!(parse_fields(&["title:string"]).is_ok());
+        assert!(parse_fields(&["status:string"]).is_ok());
+        assert!(parse_fields(&["email:string"]).is_ok());
     }
 }
