@@ -31,8 +31,8 @@ thiserror.workspace = true
 lettre.workspace = true
 notify.workspace = true
 regex.workspace = true
-secrecy = { version = "0.10.3", features = ["serde"] }
-uuid = { version = "1.23.0", features = ["v7", "serde"] }
+secrecy.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

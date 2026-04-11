@@ -35,6 +35,8 @@ serde_json = "1"
 # Security
 argon2 = "0.5"
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
+secrecy = { version = "0.10", features = ["serde"] }
+uuid = { version = "1", features = ["v7", "serde"] }
 
 # Logging
 tracing = "0.1"
@@ -48,6 +50,15 @@ thiserror = "2"
 
 # Validation
 regex = "1"
+
+# Time
+chrono = "0.4"
+
+# Hashing
+sha2 = "0.11"
+
+# Filesystem
+dirs = "6"
 
 # Email
 lettre = { version = "0.11", features = ["tokio1-native-tls", "builder"] }
