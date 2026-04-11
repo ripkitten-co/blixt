@@ -10,6 +10,7 @@ use tower_http::trace::TraceLayer;
 use tracing::info;
 
 use crate::config::Config;
+use crate::db::DbPool;
 use crate::error::Result;
 use crate::middleware::request_id::request_id;
 use crate::middleware::security_headers::security_headers;
@@ -19,6 +20,7 @@ pub struct App {
     config: Config,
     router: Router,
     static_dir: Option<String>,
+    db: Option<DbPool>,
 }
 
 impl App {
@@ -28,7 +30,16 @@ impl App {
             config,
             router: Router::new(),
             static_dir: None,
+            db: None,
         }
+    }
+
+    /// Register a database pool for health checks.
+    ///
+    /// When set, the `/_health` endpoint verifies database connectivity.
+    pub fn db(mut self, pool: DbPool) -> Self {
+        self.db = Some(pool);
+        self
     }
 
     /// Sets the application router containing user-defined routes.
@@ -50,7 +61,15 @@ impl App {
     fn build_router(self) -> Router {
         let router = attach_static_files(self.router, self.static_dir);
 
+        // Health endpoints are merged before middleware layers so they
+        // bypass tracing, CSRF, and rate limiting.
+        let health_routes = axum::Router::new()
+            .route("/_ping", axum::routing::get(crate::health::ping))
+            .route("/_health", axum::routing::get(crate::health::check))
+            .with_state(self.db);
+
         router
+            .merge(health_routes)
             .layer(CompressionLayer::new())
             .layer(middleware::from_fn(security_headers))
             .layer(middleware::from_fn(request_id))

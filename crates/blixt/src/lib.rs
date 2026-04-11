@@ -43,6 +43,8 @@ pub mod error;
 pub mod flash;
 /// Form extraction with CSRF validation.
 pub mod form;
+/// Health check endpoints.
+pub mod health;
 /// Background job runner.
 pub mod jobs;
 /// Structured logging setup.
