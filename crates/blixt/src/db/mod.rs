@@ -7,16 +7,19 @@ mod sqlite;
 pub mod builder;
 mod macros;
 
-#[cfg(feature = "postgres")]
+#[cfg(all(feature = "postgres", not(all(feature = "sqlite", not(docsrs)))))]
 pub use self::postgres::create_pool;
-#[cfg(feature = "sqlite")]
+#[cfg(all(feature = "sqlite", not(feature = "postgres")))]
 pub use self::sqlite::create_pool;
 
-/// Connection pool for the PostgreSQL backend.
-#[cfg(all(feature = "postgres", not(feature = "sqlite")))]
+/// Connection pool type, resolved at compile time by feature flag.
+#[cfg(any(
+    all(feature = "postgres", not(feature = "sqlite")),
+    all(feature = "postgres", feature = "sqlite", docsrs),
+))]
 pub type DbPool = sqlx::PgPool;
 /// Connection pool for the SQLite backend.
-#[cfg(all(feature = "sqlite", not(feature = "postgres")))]
+#[cfg(all(feature = "sqlite", not(feature = "postgres"), not(docsrs)))]
 pub type DbPool = sqlx::SqlitePool;
 
 /// Run all pending database migrations from the `./migrations` directory.

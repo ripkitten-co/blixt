@@ -31,10 +31,13 @@ use crate::db::DbPool;
 use crate::error::Result;
 
 /// Database backend type, resolved at compile time by feature flag.
-#[cfg(feature = "postgres")]
+#[cfg(any(
+    all(feature = "postgres", not(feature = "sqlite")),
+    all(feature = "postgres", feature = "sqlite", docsrs),
+))]
 type Db = sqlx::Postgres;
 /// Database backend type, resolved at compile time by feature flag.
-#[cfg(feature = "sqlite")]
+#[cfg(all(feature = "sqlite", not(feature = "postgres"), not(docsrs)))]
 type Db = sqlx::Sqlite;
 
 /// Pagination parameters extracted from the query string.
@@ -170,7 +173,7 @@ async fn count_total(base_sql: &str, pool: &DbPool) -> Result<i64> {
 }
 
 /// Fetches a single page of results with LIMIT/OFFSET appended.
-#[cfg(feature = "sqlite")]
+#[cfg(all(feature = "sqlite", not(feature = "postgres"), not(docsrs)))]
 async fn fetch_page<T>(base_sql: &str, pool: &DbPool, per_page: u32, offset: u32) -> Result<Vec<T>>
 where
     T: for<'r> FromRow<'r, <Db as sqlx::Database>::Row> + Send + Unpin,
@@ -185,7 +188,10 @@ where
 }
 
 /// Fetches a single page of results with LIMIT/OFFSET appended.
-#[cfg(feature = "postgres")]
+#[cfg(any(
+    all(feature = "postgres", not(feature = "sqlite")),
+    all(feature = "postgres", feature = "sqlite", docsrs),
+))]
 async fn fetch_page<T>(base_sql: &str, pool: &DbPool, per_page: u32, offset: u32) -> Result<Vec<T>>
 where
     T: for<'r> FromRow<'r, <Db as sqlx::Database>::Row> + Send + Unpin,

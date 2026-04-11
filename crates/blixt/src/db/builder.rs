@@ -3,9 +3,12 @@ use sqlx::FromRow;
 use crate::db::DbPool;
 use crate::error::{Error, Result};
 
-#[cfg(feature = "postgres")]
+#[cfg(any(
+    all(feature = "postgres", not(feature = "sqlite")),
+    all(feature = "postgres", feature = "sqlite", docsrs),
+))]
 type Db = sqlx::Postgres;
-#[cfg(feature = "sqlite")]
+#[cfg(all(feature = "sqlite", not(feature = "postgres"), not(docsrs)))]
 type Db = sqlx::Sqlite;
 
 type DbRow = <Db as sqlx::Database>::Row;
@@ -17,9 +20,12 @@ enum Dialect {
     Sqlite,
 }
 
-#[cfg(feature = "postgres")]
+#[cfg(any(
+    all(feature = "postgres", not(feature = "sqlite")),
+    all(feature = "postgres", feature = "sqlite", docsrs),
+))]
 const DIALECT: Dialect = Dialect::Postgres;
-#[cfg(feature = "sqlite")]
+#[cfg(all(feature = "sqlite", not(feature = "postgres"), not(docsrs)))]
 const DIALECT: Dialect = Dialect::Sqlite;
 
 fn placeholder(n: usize) -> String {
