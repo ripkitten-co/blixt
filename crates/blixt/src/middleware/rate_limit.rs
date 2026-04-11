@@ -19,6 +19,7 @@ pub struct RateLimiter {
     max_requests: f64,
     window_secs: f64,
     max_entries: usize,
+    trusted_proxies: Vec<IpAddr>,
 }
 
 #[derive(Debug)]
@@ -35,12 +36,23 @@ impl RateLimiter {
             max_requests: f64::from(max_requests),
             window_secs: window_secs as f64,
             max_entries: 10_000,
+            trusted_proxies: Vec::new(),
         }
     }
 
     /// Override the maximum number of tracked IPs before eviction kicks in.
     pub fn with_max_entries(mut self, max_entries: usize) -> Self {
         self.max_entries = max_entries;
+        self
+    }
+
+    /// Set proxy IPs that are trusted to provide `X-Forwarded-For`.
+    ///
+    /// When the direct connection IP (from `ConnectInfo`) matches one of these
+    /// addresses, the rate limiter reads the client IP from the `X-Forwarded-For`
+    /// header. Otherwise the header is ignored to prevent spoofing.
+    pub fn with_trusted_proxies(mut self, proxies: Vec<IpAddr>) -> Self {
+        self.trusted_proxies = proxies;
         self
     }
 
@@ -115,9 +127,10 @@ fn replenish_tokens(bucket: &mut Bucket, now: Instant, max: f64, window: f64) {
 
 /// Axum middleware that enforces per-IP rate limiting.
 ///
-/// Extracts the client IP from `ConnectInfo<SocketAddr>` or the
-/// `x-forwarded-for` header as a fallback. Returns 429 with a `Retry-After`
-/// header when the rate limit is exceeded.
+/// Extracts the client IP from `ConnectInfo<SocketAddr>`. The `X-Forwarded-For`
+/// header is only used when the direct connection IP is in the configured
+/// `trusted_proxies` list. Returns 429 with a `Retry-After` header when the
+/// rate limit is exceeded.
 ///
 /// # Usage
 ///
@@ -136,7 +149,7 @@ pub async fn rate_limit_middleware(
     request: Request<axum::body::Body>,
     next: Next,
 ) -> Response {
-    let ip = extract_client_ip(&request, connect_info);
+    let ip = extract_client_ip(&request, connect_info, &limiter.trusted_proxies);
 
     if limiter.check(ip) {
         next.run(request).await
@@ -145,23 +158,51 @@ pub async fn rate_limit_middleware(
     }
 }
 
-/// Extracts the client IP, preferring ConnectInfo and falling back to
-/// x-forwarded-for, then to a loopback address.
+/// Extracts the client IP from the request.
+///
+/// When `ConnectInfo` is available and the direct connection IP is in the
+/// `trusted_proxies` list, the first address in `X-Forwarded-For` is used.
+/// Otherwise the direct connection IP is returned as-is, preventing header
+/// spoofing by untrusted clients.
+///
+/// When `ConnectInfo` is unavailable (e.g. tests without a real socket) and
+/// `trusted_proxies` is empty, falls back to loopback.
 fn extract_client_ip(
     request: &Request<axum::body::Body>,
     connect_info: Option<ConnectInfo<SocketAddr>>,
+    trusted_proxies: &[IpAddr],
 ) -> IpAddr {
     if let Some(ConnectInfo(addr)) = connect_info {
-        return addr.ip();
+        let direct_ip = addr.ip();
+
+        if trusted_proxies.contains(&direct_ip) {
+            if let Some(forwarded) = forwarded_for_ip(request) {
+                return forwarded;
+            }
+        }
+
+        return direct_ip;
     }
 
+    // No ConnectInfo — only consult the header if proxies are configured,
+    // since without a socket address we can't verify who sent the request.
+    if !trusted_proxies.is_empty() {
+        if let Some(forwarded) = forwarded_for_ip(request) {
+            return forwarded;
+        }
+    }
+
+    IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
+}
+
+/// Parses the first IP from the `X-Forwarded-For` header.
+fn forwarded_for_ip(request: &Request<axum::body::Body>) -> Option<IpAddr> {
     request
         .headers()
         .get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.split(',').next())
         .and_then(|s| s.trim().parse::<IpAddr>().ok())
-        .unwrap_or(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST))
 }
 
 /// Builds a 429 Too Many Requests response with a Retry-After header.
@@ -253,26 +294,15 @@ mod tests {
     }
 
     #[test]
-    fn extract_client_ip_prefers_connect_info() {
+    fn extract_client_ip_uses_connect_info_when_not_trusted() {
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
         let request = Request::builder()
             .header("x-forwarded-for", "10.0.0.1")
             .body(axum::body::Body::empty())
             .expect("build request");
 
-        let ip = extract_client_ip(&request, Some(ConnectInfo(addr)));
+        let ip = extract_client_ip(&request, Some(ConnectInfo(addr)), &[]);
         assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)));
-    }
-
-    #[test]
-    fn extract_client_ip_falls_back_to_forwarded_for() {
-        let request = Request::builder()
-            .header("x-forwarded-for", "10.0.0.1, 172.16.0.1")
-            .body(axum::body::Body::empty())
-            .expect("build request");
-
-        let ip = extract_client_ip(&request, None);
-        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)));
     }
 
     #[test]
@@ -281,8 +311,48 @@ mod tests {
             .body(axum::body::Body::empty())
             .expect("build request");
 
-        let ip = extract_client_ip(&request, None);
+        let ip = extract_client_ip(&request, None, &[]);
         assert_eq!(ip, IpAddr::V4(Ipv4Addr::LOCALHOST));
+    }
+
+    #[test]
+    fn untrusted_connection_ignores_forwarded_for() {
+        let proxy_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 1)), 3000);
+        let request = Request::builder()
+            .header("x-forwarded-for", "10.0.0.99")
+            .body(axum::body::Body::empty())
+            .expect("build request");
+
+        // Proxy IP is NOT in the trusted list, so X-Forwarded-For is ignored
+        let ip = extract_client_ip(&request, Some(ConnectInfo(proxy_addr)), &[]);
+        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(172, 16, 0, 1)));
+    }
+
+    #[test]
+    fn trusted_proxy_uses_forwarded_for() {
+        let proxy_ip = IpAddr::V4(Ipv4Addr::new(172, 16, 0, 1));
+        let proxy_addr = SocketAddr::new(proxy_ip, 3000);
+        let request = Request::builder()
+            .header("x-forwarded-for", "10.0.0.99, 172.16.0.1")
+            .body(axum::body::Body::empty())
+            .expect("build request");
+
+        let trusted = vec![proxy_ip];
+        let ip = extract_client_ip(&request, Some(ConnectInfo(proxy_addr)), &trusted);
+        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(10, 0, 0, 99)));
+    }
+
+    #[test]
+    fn empty_trusted_proxies_always_uses_connect_info() {
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 50)), 9000);
+        let request = Request::builder()
+            .header("x-forwarded-for", "10.0.0.1")
+            .body(axum::body::Body::empty())
+            .expect("build request");
+
+        // Empty trusted list = always use the direct connection IP
+        let ip = extract_client_ip(&request, Some(ConnectInfo(addr)), &[]);
+        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 50)));
     }
 
     #[test]
