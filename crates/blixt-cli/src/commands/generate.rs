@@ -5,7 +5,7 @@ use chrono::Utc;
 use console::style;
 
 use crate::fields::{DbDialect, FieldDef, FieldType, detect_dialect, parse_fields};
-use crate::validate::{to_pascal_case, to_snake_case};
+use crate::validate::{pluralize, to_pascal_case, to_snake_case};
 
 /// Generates a controller with Askama template views.
 ///
@@ -71,11 +71,11 @@ fn generate_model_in(
 ) -> Result<(), String> {
     let snake = to_snake_case(name);
     let pascal = to_pascal_case(name);
-    let plural = format!("{snake}s");
+    let plural = pluralize(&snake);
 
     write_model_file(base, &snake, &pascal, fields, dialect)?;
     update_mod_file(base, "models", &snake)?;
-    write_migration_file(base, &snake, &plural, fields)?;
+    write_migration_file(base, &snake, fields)?;
 
     println!(
         "  {} model {} and migration for {plural}",
@@ -155,6 +155,7 @@ fn write_scaffold_controller_file(
 ) -> Result<(), String> {
     let dir = base.join("src/controllers");
     let path = dir.join(format!("{snake}.rs"));
+    let plural = pluralize(snake);
 
     let col_list = build_column_list(fields).join(", ");
 
@@ -231,7 +232,7 @@ pub struct {pascal}Show {{
 
 async fn fetch_page(pool: &DbPool, page_num: u32) -> Result<Paginated<{pascal}>> {{
     Paginated::<{pascal}>::query(
-        "SELECT {col_list} FROM {snake}s ORDER BY id DESC",
+        "SELECT {col_list} FROM {plural} ORDER BY id DESC",
         pool,
         &PaginationParams::new(page_num, PER_PAGE),
     )
@@ -387,7 +388,7 @@ fn write_scaffold_show_template(
 ) -> Result<(), String> {
     let dir = base.join(format!("templates/pages/{snake}"));
     let path = dir.join("show.html");
-    let plural = format!("{snake}s");
+    let plural = pluralize(snake);
 
     let signal_attrs: String = fields
         .iter()
@@ -457,7 +458,7 @@ fn write_scaffold_show_template(
 {{% block content %}}
 <main class="min-h-screen flex justify-center px-4 pt-16 pb-12 sm:pt-24">
   <div class="w-full max-w-lg">
-    <a href="/{plural}" class="text-[12px] text-zinc-600 hover:text-zinc-400 transition-colors">&larr; Back to {snake}s</a>
+    <a href="/{plural}" class="text-[12px] text-zinc-600 hover:text-zinc-400 transition-colors">&larr; Back to {plural}</a>
 
     <h1 class="text-lg font-medium text-zinc-200 mt-4 mb-6">{pascal} #{{{{{{ item.id }}}}}}</h1>
 
@@ -507,7 +508,7 @@ fn write_model_file(
 ) -> Result<(), String> {
     let dir = base.join("src/models");
     let path = dir.join(format!("{snake}.rs"));
-    let plural = format!("{snake}s");
+    let plural = pluralize(snake);
 
     let struct_fields: String = fields
         .iter()
@@ -646,16 +647,12 @@ fn build_column_list(fields: &[FieldDef]) -> Vec<String> {
 }
 
 /// Writes a timestamped SQL migration file.
-fn write_migration_file(
-    base: &Path,
-    snake: &str,
-    plural: &str,
-    fields: &[FieldDef],
-) -> Result<(), String> {
+fn write_migration_file(base: &Path, snake: &str, fields: &[FieldDef]) -> Result<(), String> {
     let dialect = detect_dialect();
     let timestamp = Utc::now().format("%Y%m%d%H%M%S");
     let dir = base.join("migrations");
-    let path = dir.join(format!("{timestamp}_create_{snake}s.sql"));
+    let plural = pluralize(snake);
+    let path = dir.join(format!("{timestamp}_create_{plural}.sql"));
 
     let (id_line, ts_type, ts_default) = match dialect {
         DbDialect::Postgres => ("id BIGSERIAL PRIMARY KEY", "TIMESTAMPTZ", "NOW()"),
@@ -692,7 +689,7 @@ fn write_form_fragment(
 ) -> Result<(), String> {
     let dir = base.join(format!("templates/fragments/{snake}"));
     let path = dir.join("form.html");
-    let plural = format!("{snake}s");
+    let plural = pluralize(snake);
 
     let signal_attrs: String = fields
         .iter()
@@ -771,13 +768,13 @@ fn write_form_fragment(
 fn write_list_fragment(base: &Path, snake: &str, _fields: &[FieldDef]) -> Result<(), String> {
     let dir = base.join(format!("templates/fragments/{snake}"));
     let path = dir.join("list.html");
-    let plural = format!("{snake}s");
+    let plural = pluralize(snake);
 
     let content = format!(
         r##"<div id="{snake}-list">
 {{% if page.items.is_empty() %}}
   <div class="border border-zinc-800/80 rounded-lg bg-zinc-900/40 px-4 py-8">
-    <p class="text-zinc-600 text-[13px] text-center">No {snake}s yet.</p>
+    <p class="text-zinc-600 text-[13px] text-center">No {plural} yet.</p>
   </div>
 {{% else %}}
   <div class="border border-zinc-800/80 rounded-lg bg-zinc-900/40 divide-y divide-zinc-800/60">
@@ -819,7 +816,7 @@ fn write_list_fragment(base: &Path, snake: &str, _fields: &[FieldDef]) -> Result
 fn write_item_fragment(base: &Path, snake: &str, fields: &[FieldDef]) -> Result<(), String> {
     let dir = base.join(format!("templates/fragments/{snake}"));
     let path = dir.join("item.html");
-    let plural = format!("{snake}s");
+    let plural = pluralize(snake);
 
     let display_field = fields
         .iter()
@@ -875,7 +872,7 @@ fn print_controller_route_hint(snake: &str) {
 
 /// Prints full CRUD route registration hints after scaffold generation.
 fn print_scaffold_route_hints(snake: &str) {
-    let plural = format!("{snake}s");
+    let plural = pluralize(snake);
     println!(
         "\n  {} Add CRUD routes to src/main.rs:",
         style("next:").cyan().bold()

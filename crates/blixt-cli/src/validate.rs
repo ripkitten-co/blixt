@@ -77,6 +77,31 @@ pub fn to_pascal_case(name: &str) -> String {
         .collect()
 }
 
+/// Pluralizes an English noun using common suffix rules.
+///
+/// Covers regular nouns, sibilant endings (s/x/z/sh/ch → es),
+/// consonant+y → ies, and vowel+y → s.
+#[allow(dead_code)]
+pub fn pluralize(word: &str) -> String {
+    if word.ends_with('s')
+        || word.ends_with('x')
+        || word.ends_with('z')
+        || word.ends_with("sh")
+        || word.ends_with("ch")
+    {
+        return format!("{word}es");
+    }
+
+    if let Some(stem) = word.strip_suffix('y') {
+        if stem.ends_with(|c: char| !"aeiou".contains(c)) {
+            return format!("{stem}ies");
+        }
+        return format!("{word}s");
+    }
+
+    format!("{word}s")
+}
+
 /// Capitalizes the first character of a string slice.
 fn capitalize_first(segment: &str) -> String {
     let mut chars = segment.chars();
@@ -169,5 +194,34 @@ mod tests {
     #[test]
     fn to_pascal_case_single_word() {
         assert_eq!(to_pascal_case("user"), "User");
+    }
+
+    #[test]
+    fn pluralize_regular_nouns() {
+        assert_eq!(pluralize("post"), "posts");
+        assert_eq!(pluralize("user"), "users");
+    }
+
+    #[test]
+    fn pluralize_s_x_z_sh_ch_endings() {
+        assert_eq!(pluralize("status"), "statuses");
+        assert_eq!(pluralize("box"), "boxes");
+        assert_eq!(pluralize("wish"), "wishes");
+        assert_eq!(pluralize("match"), "matches");
+        assert_eq!(pluralize("address"), "addresses");
+    }
+
+    #[test]
+    fn pluralize_consonant_y() {
+        assert_eq!(pluralize("category"), "categories");
+        assert_eq!(pluralize("city"), "cities");
+        assert_eq!(pluralize("company"), "companies");
+    }
+
+    #[test]
+    fn pluralize_vowel_y() {
+        assert_eq!(pluralize("key"), "keys");
+        assert_eq!(pluralize("day"), "days");
+        assert_eq!(pluralize("toy"), "toys");
     }
 }
