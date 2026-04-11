@@ -91,7 +91,11 @@ impl RateLimiter {
         state.retain(|_, bucket| now.duration_since(bucket.last_check) < stale_threshold);
         let evicted = before - state.len();
         if evicted > 0 {
-            tracing::info!(evicted, remaining = state.len(), "rate limiter eviction pass");
+            tracing::info!(
+                evicted,
+                remaining = state.len(),
+                "rate limiter eviction pass"
+            );
         }
     }
 

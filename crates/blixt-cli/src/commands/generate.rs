@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use chrono::Utc;
 use console::style;
 
-use crate::fields::{FieldDef, FieldType, parse_fields};
+use crate::fields::{DbDialect, FieldDef, FieldType, detect_dialect, parse_fields};
 use crate::validate::{to_pascal_case, to_snake_case};
 
 /// Generates a controller with Askama template views.
@@ -23,7 +23,8 @@ pub fn generate_controller(name: &str) -> Result<(), String> {
 pub fn generate_model(name: &str, field_args: &[&str]) -> Result<(), String> {
     let base = current_dir()?;
     let fields = parse_fields(field_args)?;
-    generate_model_in(&base, name, &fields)
+    let dialect = detect_dialect();
+    generate_model_in(&base, name, &fields, dialect)
 }
 
 /// Generates a full CRUD scaffold: controller, model, and list fragment.
@@ -41,7 +42,8 @@ pub fn generate_scaffold(name: &str, field_args: &[&str]) -> Result<(), String> 
     } else {
         fields
     };
-    generate_scaffold_in(&base, name, &fields)
+    let dialect = detect_dialect();
+    generate_scaffold_in(&base, name, &fields, dialect)
 }
 
 // --- Path-aware implementations (testable without chdir) ---
@@ -52,6 +54,7 @@ fn generate_controller_in(base: &Path, name: &str) -> Result<(), String> {
     let pascal = to_pascal_case(name);
 
     write_controller_file(base, &snake, &pascal)?;
+    update_mod_file(base, "controllers", &snake)?;
     write_index_template(base, &snake, &pascal)?;
     write_show_template(base, &snake, &pascal)?;
 
@@ -60,12 +63,18 @@ fn generate_controller_in(base: &Path, name: &str) -> Result<(), String> {
 }
 
 /// Model generation rooted at `base`.
-fn generate_model_in(base: &Path, name: &str, fields: &[FieldDef]) -> Result<(), String> {
+fn generate_model_in(
+    base: &Path,
+    name: &str,
+    fields: &[FieldDef],
+    dialect: DbDialect,
+) -> Result<(), String> {
     let snake = to_snake_case(name);
     let pascal = to_pascal_case(name);
     let plural = format!("{snake}s");
 
-    write_model_file(base, &snake, &pascal, fields)?;
+    write_model_file(base, &snake, &pascal, fields, dialect)?;
+    update_mod_file(base, "models", &snake)?;
     write_migration_file(base, &snake, &plural, fields)?;
 
     println!(
@@ -77,12 +86,18 @@ fn generate_model_in(base: &Path, name: &str, fields: &[FieldDef]) -> Result<(),
 }
 
 /// Scaffold generation rooted at `base`.
-fn generate_scaffold_in(base: &Path, name: &str, fields: &[FieldDef]) -> Result<(), String> {
+fn generate_scaffold_in(
+    base: &Path,
+    name: &str,
+    fields: &[FieldDef],
+    dialect: DbDialect,
+) -> Result<(), String> {
     let snake = to_snake_case(name);
     let pascal = to_pascal_case(name);
 
-    generate_model_in(base, name, fields)?;
+    generate_model_in(base, name, fields, dialect)?;
     write_scaffold_controller_file(base, &snake, &pascal, fields)?;
+    update_mod_file(base, "controllers", &snake)?;
     write_scaffold_index_template(base, &snake, &pascal, fields)?;
     write_scaffold_show_template(base, &snake, &pascal, fields)?;
     write_form_fragment(base, &snake, &pascal, fields)?;
@@ -475,12 +490,20 @@ fn write_scaffold_show_template(
     write_file(&path, &content)
 }
 
+fn placeholder(n: usize, dialect: DbDialect) -> String {
+    match dialect {
+        DbDialect::Postgres => format!("${n}"),
+        DbDialect::Sqlite => "?".to_string(),
+    }
+}
+
 /// Writes the model Rust source file with SQLx derives and CRUD methods.
 fn write_model_file(
     base: &Path,
     snake: &str,
     pascal: &str,
     fields: &[FieldDef],
+    dialect: DbDialect,
 ) -> Result<(), String> {
     let dir = base.join("src/models");
     let path = dir.join(format!("{snake}.rs"));
@@ -497,10 +520,12 @@ fn write_model_file(
 
     let mut methods = String::new();
 
+    let ph1 = placeholder(1, dialect);
+
     // find_by_id
     methods.push_str(&format!(
         r#"    pub async fn find_by_id(pool: &DbPool, id: i64) -> Result<Self> {{
-        Ok(query_as!(Self, "SELECT {select_cols} FROM {plural} WHERE id = ?")
+        Ok(query_as!(Self, "SELECT {select_cols} FROM {plural} WHERE id = {ph1}")
             .bind(id)
             .fetch_one(pool)
             .await?)
@@ -522,7 +547,9 @@ fn write_model_file(
     if !fields.is_empty() {
         let user_col_names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
         let insert_cols = user_col_names.join(", ");
-        let insert_placeholders: Vec<&str> = fields.iter().map(|_| "?").collect();
+        let insert_placeholders: Vec<String> = (1..=fields.len())
+            .map(|i| placeholder(i, dialect))
+            .collect();
         let insert_placeholders = insert_placeholders.join(", ");
 
         let create_params: String = fields
@@ -551,8 +578,13 @@ fn write_model_file(
     }}"#
         ));
 
-        let set_clauses: Vec<String> = fields.iter().map(|f| format!("{} = ?", f.name)).collect();
+        let set_clauses: Vec<String> = fields
+            .iter()
+            .enumerate()
+            .map(|(i, f)| format!("{} = {}", f.name, placeholder(i + 1, dialect)))
+            .collect();
         let set_clause = format!("{}, updated_at = CURRENT_TIMESTAMP", set_clauses.join(", "));
+        let where_ph = placeholder(fields.len() + 1, dialect);
 
         let update_params: String = create_params.clone();
         let mut update_binds = create_binds.clone();
@@ -562,7 +594,7 @@ fn write_model_file(
             r#"
 
     pub async fn update(pool: &DbPool, id: i64{update_params}) -> Result<Self> {{
-        Ok(query_as!(Self, "UPDATE {plural} SET {set_clause} WHERE id = ? RETURNING {select_cols}"){update_binds}
+        Ok(query_as!(Self, "UPDATE {plural} SET {set_clause} WHERE id = {where_ph} RETURNING {select_cols}"){update_binds}
             .fetch_one(pool)
             .await?)
     }}"#
@@ -574,7 +606,7 @@ fn write_model_file(
         r#"
 
     pub async fn delete(pool: &DbPool, id: i64) -> Result<()> {{
-        query!("DELETE FROM {plural} WHERE id = ?")
+        query!("DELETE FROM {plural} WHERE id = {ph1}")
             .bind(id)
             .execute(pool)
             .await?;
@@ -620,8 +652,6 @@ fn write_migration_file(
     plural: &str,
     fields: &[FieldDef],
 ) -> Result<(), String> {
-    use crate::fields::{DbDialect, detect_dialect};
-
     let dialect = detect_dialect();
     let timestamp = Utc::now().format("%Y%m%d%H%M%S");
     let dir = base.join("migrations");
@@ -879,6 +909,31 @@ fn write_file(path: &Path, content: &str) -> Result<(), String> {
     fs::write(path, content).map_err(|err| format!("Failed to write '{}': {err}", path.display()))
 }
 
+fn update_mod_file(base: &Path, module_dir: &str, snake: &str) -> Result<(), String> {
+    let mod_path = base.join(format!("src/{module_dir}/mod.rs"));
+    let mod_line = format!("pub mod {snake};");
+
+    if mod_path.exists() {
+        let content = fs::read_to_string(&mod_path)
+            .map_err(|e| format!("Failed to read {}: {e}", mod_path.display()))?;
+        if content.contains(&mod_line) {
+            return Ok(());
+        }
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(&mod_path)
+            .map_err(|e| format!("Failed to open {}: {e}", mod_path.display()))?;
+        use std::io::Write;
+        writeln!(file, "{mod_line}")
+            .map_err(|e| format!("Failed to write {}: {e}", mod_path.display()))?;
+    } else {
+        ensure_dir_exists(&base.join(format!("src/{module_dir}")))?;
+        fs::write(&mod_path, format!("{mod_line}\n"))
+            .map_err(|e| format!("Failed to write {}: {e}", mod_path.display()))?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use tempfile::TempDir;
@@ -915,7 +970,8 @@ mod tests {
         let tmp = TempDir::new().expect("failed to create temp dir");
         let base = tmp.path();
 
-        generate_model_in(base, "User", &[]).expect("generate_model_in failed");
+        generate_model_in(base, "User", &[], DbDialect::Postgres)
+            .expect("generate_model_in failed");
 
         let model =
             fs::read_to_string(base.join("src/models/user.rs")).expect("model file missing");
@@ -958,7 +1014,7 @@ mod tests {
             name: "name".into(),
             field_type: FieldType::String,
         }];
-        generate_scaffold_in(base, "Product", &default_fields)
+        generate_scaffold_in(base, "Product", &default_fields, DbDialect::Postgres)
             .expect("generate_scaffold_in failed");
 
         assert!(base.join("src/controllers/product.rs").exists());
@@ -999,7 +1055,8 @@ mod tests {
             },
         ];
 
-        generate_model_in(base, "Article", &fields).expect("generate_model_in failed");
+        generate_model_in(base, "Article", &fields, DbDialect::Postgres)
+            .expect("generate_model_in failed");
 
         let model =
             fs::read_to_string(base.join("src/models/article.rs")).expect("model file missing");
@@ -1030,7 +1087,7 @@ mod tests {
             field_type: FieldType::String,
         }];
 
-        generate_scaffold_in(base, "Post", &fields).expect("scaffold failed");
+        generate_scaffold_in(base, "Post", &fields, DbDialect::Postgres).expect("scaffold failed");
 
         let controller =
             fs::read_to_string(base.join("src/controllers/post.rs")).expect("controller missing");
@@ -1076,7 +1133,8 @@ mod tests {
             },
         ];
 
-        generate_scaffold_in(base, "Widget", &fields).expect("scaffold failed");
+        generate_scaffold_in(base, "Widget", &fields, DbDialect::Postgres)
+            .expect("scaffold failed");
 
         let index = fs::read_to_string(base.join("templates/pages/widget/index.html"))
             .expect("index template missing");
@@ -1099,7 +1157,7 @@ mod tests {
             field_type: FieldType::String,
         }];
 
-        generate_scaffold_in(base, "Task", &fields).expect("scaffold failed");
+        generate_scaffold_in(base, "Task", &fields, DbDialect::Postgres).expect("scaffold failed");
 
         let list = fs::read_to_string(base.join("templates/fragments/task/list.html"))
             .expect("list fragment missing");
@@ -1129,7 +1187,8 @@ mod tests {
             },
         ];
 
-        generate_scaffold_in(base, "Product", &fields).expect("scaffold failed");
+        generate_scaffold_in(base, "Product", &fields, DbDialect::Postgres)
+            .expect("scaffold failed");
 
         let show = fs::read_to_string(base.join("templates/pages/product/show.html"))
             .expect("show template missing");
@@ -1140,5 +1199,96 @@ mod tests {
         assert!(show.contains("@put("));
         assert!(show.contains("@delete("));
         assert!(show.contains("href=\"/products\""));
+    }
+
+    #[test]
+    fn model_generation_creates_mod_file() {
+        let tmp = TempDir::new().expect("failed to create temp dir");
+        let base = tmp.path();
+
+        generate_model_in(base, "User", &[], DbDialect::Postgres).expect("generate failed");
+
+        let mod_rs = fs::read_to_string(base.join("src/models/mod.rs")).expect("mod.rs missing");
+        assert!(mod_rs.contains("pub mod user;"));
+    }
+
+    #[test]
+    fn scaffold_creates_both_mod_files() {
+        let tmp = TempDir::new().expect("failed to create temp dir");
+        let base = tmp.path();
+        let fields = vec![FieldDef {
+            name: "name".into(),
+            field_type: FieldType::String,
+        }];
+
+        generate_scaffold_in(base, "Widget", &fields, DbDialect::Postgres)
+            .expect("scaffold failed");
+
+        let models_mod =
+            fs::read_to_string(base.join("src/models/mod.rs")).expect("models/mod.rs missing");
+        assert!(models_mod.contains("pub mod widget;"));
+
+        let controllers_mod = fs::read_to_string(base.join("src/controllers/mod.rs"))
+            .expect("controllers/mod.rs missing");
+        assert!(controllers_mod.contains("pub mod widget;"));
+    }
+
+    #[test]
+    fn mod_file_is_idempotent() {
+        let tmp = TempDir::new().expect("failed to create temp dir");
+        let base = tmp.path();
+
+        let dir = base.join("src/models");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("mod.rs"), "pub mod existing;\n").unwrap();
+
+        generate_model_in(base, "User", &[], DbDialect::Postgres).expect("generate failed");
+
+        let mod_rs = fs::read_to_string(base.join("src/models/mod.rs")).expect("mod.rs missing");
+        assert!(mod_rs.contains("pub mod existing;"));
+        assert!(mod_rs.contains("pub mod user;"));
+    }
+
+    #[test]
+    fn model_uses_postgres_placeholders() {
+        let tmp = TempDir::new().expect("failed to create temp dir");
+        let base = tmp.path();
+        let fields = vec![
+            FieldDef {
+                name: "title".into(),
+                field_type: FieldType::String,
+            },
+            FieldDef {
+                name: "active".into(),
+                field_type: FieldType::Bool,
+            },
+        ];
+
+        generate_model_in(base, "Post", &fields, DbDialect::Postgres).expect("generate failed");
+
+        let model = fs::read_to_string(base.join("src/models/post.rs")).expect("model missing");
+        assert!(model.contains("WHERE id = $1"));
+        assert!(model.contains("VALUES ($1, $2)"));
+        assert!(model.contains("title = $1, active = $2"));
+        assert!(model.contains("WHERE id = $3"));
+        assert!(!model.contains(" ? "));
+    }
+
+    #[test]
+    fn model_uses_sqlite_placeholders() {
+        let tmp = TempDir::new().expect("failed to create temp dir");
+        let base = tmp.path();
+        let fields = vec![FieldDef {
+            name: "title".into(),
+            field_type: FieldType::String,
+        }];
+
+        generate_model_in(base, "Item", &fields, DbDialect::Sqlite).expect("generate failed");
+
+        let model = fs::read_to_string(base.join("src/models/item.rs")).expect("model missing");
+        assert!(model.contains("WHERE id = ?"));
+        assert!(model.contains("VALUES (?)"));
+        assert!(model.contains("title = ?"));
+        assert!(!model.contains("$1"));
     }
 }
