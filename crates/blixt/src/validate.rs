@@ -1,7 +1,10 @@
-//! Input validation with a fluent builder API.
+//! Input validation with a fluent, type-safe builder API.
 //!
-//! Provides chainable validation rules for common types. Errors are
-//! collected per-field and returned as [`ValidationErrors`] via
+//! Provides chainable validation rules for common types. Each field type
+//! returns its own validator, so string rules cannot be called on integer
+//! fields (and vice versa) -- misuse is caught at compile time.
+//!
+//! Errors are collected per-field and returned as [`ValidationErrors`] via
 //! [`Error::Validation`].
 //!
 //! # Example
@@ -14,6 +17,15 @@
 //! v.str_field(&title, "title").not_empty().max_length(255);
 //! v.i64_field(priority, "priority").range(1, 5);
 //! v.check()?; // Returns Err(Error::Validation(...)) if any rule fails
+//! ```
+//!
+//! Calling string rules on an integer field is a compile error:
+//!
+//! ```compile_fail
+//! use blixt::validate::Validator;
+//!
+//! let mut v = Validator::new();
+//! v.i64_field(42, "count").not_empty(); // ERROR: no method `not_empty` on `I64FieldValidator`
 //! ```
 
 use crate::error::{Error, ValidationErrors};
@@ -30,17 +42,6 @@ pub const SLUG_PATTERN: &str = r"^[a-z0-9]+(?:-[a-z0-9]+)*$";
 /// Collects validation errors across multiple fields.
 pub struct Validator {
     errors: ValidationErrors,
-    current_field: Option<CurrentField>,
-}
-
-struct CurrentField {
-    name: &'static str,
-    kind: FieldKind,
-}
-
-enum FieldKind {
-    Str(String),
-    I64(i64),
 }
 
 impl Default for Validator {
@@ -54,125 +55,25 @@ impl Validator {
     pub fn new() -> Self {
         Self {
             errors: ValidationErrors::new(),
-            current_field: None,
         }
     }
 
     /// Begin validating a string field.
-    pub fn str_field(&mut self, value: &str, name: &'static str) -> &mut Self {
-        self.current_field = Some(CurrentField {
+    pub fn str_field(&mut self, value: &str, name: &'static str) -> StrFieldValidator<'_> {
+        StrFieldValidator {
+            validator: self,
             name,
-            kind: FieldKind::Str(value.to_owned()),
-        });
-        self
+            value: value.to_owned(),
+        }
     }
 
     /// Begin validating an integer field.
-    pub fn i64_field(&mut self, value: i64, name: &'static str) -> &mut Self {
-        self.current_field = Some(CurrentField {
+    pub fn i64_field(&mut self, value: i64, name: &'static str) -> I64FieldValidator<'_> {
+        I64FieldValidator {
+            validator: self,
             name,
-            kind: FieldKind::I64(value),
-        });
-        self
-    }
-
-    // --- String rules ---
-
-    /// Require the string to be non-empty after trimming.
-    pub fn not_empty(&mut self) -> &mut Self {
-        if let Some(CurrentField {
-            name,
-            kind: FieldKind::Str(ref v),
-        }) = self.current_field
-        {
-            if v.trim().is_empty() {
-                self.errors.add(name, format!("{name} must not be empty"));
-            }
+            value,
         }
-        self
-    }
-
-    /// Require the string length to be at most `max` characters.
-    pub fn max_length(&mut self, max: usize) -> &mut Self {
-        if let Some(CurrentField {
-            name,
-            kind: FieldKind::Str(ref v),
-        }) = self.current_field
-        {
-            if v.len() > max {
-                self.errors
-                    .add(name, format!("{name} must be at most {max} characters"));
-            }
-        }
-        self
-    }
-
-    /// Require the string length to be at least `min` characters.
-    pub fn min_length(&mut self, min: usize) -> &mut Self {
-        if let Some(CurrentField {
-            name,
-            kind: FieldKind::Str(ref v),
-        }) = self.current_field
-        {
-            if v.len() < min {
-                self.errors
-                    .add(name, format!("{name} must be at least {min} characters"));
-            }
-        }
-        self
-    }
-
-    /// Require the string to match a regex pattern.
-    pub fn pattern(&mut self, regex: &str, message: &str) -> &mut Self {
-        if let Some(CurrentField {
-            name,
-            kind: FieldKind::Str(ref v),
-        }) = self.current_field
-        {
-            match regex::Regex::new(regex) {
-                Ok(re) => {
-                    if !re.is_match(v) {
-                        self.errors.add(name, format!("{name} {message}"));
-                    }
-                }
-                Err(_) => {
-                    self.errors
-                        .add(name, format!("{name}: invalid validation pattern"));
-                }
-            }
-        }
-        self
-    }
-
-    // --- Numeric rules ---
-
-    /// Require the integer to be within an inclusive range.
-    pub fn range(&mut self, min: i64, max: i64) -> &mut Self {
-        if let Some(CurrentField {
-            name,
-            kind: FieldKind::I64(v),
-        }) = self.current_field
-        {
-            if v < min || v > max {
-                self.errors
-                    .add(name, format!("{name} must be between {min} and {max}"));
-            }
-        }
-        self
-    }
-
-    /// Require the integer to be positive (> 0).
-    pub fn positive(&mut self) -> &mut Self {
-        if let Some(CurrentField {
-            name,
-            kind: FieldKind::I64(v),
-        }) = self.current_field
-        {
-            if v <= 0 {
-                self.errors.add(name, format!("{name} must be positive"));
-            }
-        }
-        self
     }
 
     /// Returns `Ok(())` if no errors, or `Err(Error::Validation(...))`.
@@ -182,6 +83,97 @@ impl Validator {
         } else {
             Err(Error::Validation(self.errors))
         }
+    }
+}
+
+/// Type-safe validator for string fields.
+pub struct StrFieldValidator<'a> {
+    validator: &'a mut Validator,
+    name: &'static str,
+    value: String,
+}
+
+impl<'a> StrFieldValidator<'a> {
+    /// Require the string to be non-empty after trimming.
+    pub fn not_empty(&mut self) -> &mut Self {
+        if self.value.trim().is_empty() {
+            self.validator
+                .errors
+                .add(self.name, format!("{} must not be empty", self.name));
+        }
+        self
+    }
+
+    /// Require the string length to be at most `max` characters.
+    pub fn max_length(&mut self, max: usize) -> &mut Self {
+        if self.value.len() > max {
+            self.validator.errors.add(
+                self.name,
+                format!("{} must be at most {max} characters", self.name),
+            );
+        }
+        self
+    }
+
+    /// Require the string length to be at least `min` characters.
+    pub fn min_length(&mut self, min: usize) -> &mut Self {
+        if self.value.len() < min {
+            self.validator.errors.add(
+                self.name,
+                format!("{} must be at least {min} characters", self.name),
+            );
+        }
+        self
+    }
+
+    /// Require the string to match a regex pattern.
+    pub fn pattern(&mut self, regex: &str, message: &str) -> &mut Self {
+        match regex::Regex::new(regex) {
+            Ok(re) => {
+                if !re.is_match(&self.value) {
+                    self.validator
+                        .errors
+                        .add(self.name, format!("{} {message}", self.name));
+                }
+            }
+            Err(_) => {
+                self.validator.errors.add(
+                    self.name,
+                    format!("{}: invalid validation pattern", self.name),
+                );
+            }
+        }
+        self
+    }
+}
+
+/// Type-safe validator for i64 fields.
+pub struct I64FieldValidator<'a> {
+    validator: &'a mut Validator,
+    name: &'static str,
+    value: i64,
+}
+
+impl<'a> I64FieldValidator<'a> {
+    /// Require the integer to be within an inclusive range.
+    pub fn range(&mut self, min: i64, max: i64) -> &mut Self {
+        if self.value < min || self.value > max {
+            self.validator.errors.add(
+                self.name,
+                format!("{} must be between {min} and {max}", self.name),
+            );
+        }
+        self
+    }
+
+    /// Require the integer to be positive (> 0).
+    pub fn positive(&mut self) -> &mut Self {
+        if self.value <= 0 {
+            self.validator
+                .errors
+                .add(self.name, format!("{} must be positive", self.name));
+        }
+        self
     }
 }
 
