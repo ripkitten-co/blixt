@@ -193,21 +193,16 @@ fn write_scaffold_controller_file(
         })
         .collect();
 
-    let signal_reset_pairs: String = fields
+    let signal_clear_keys: String = fields
         .iter()
-        .map(|f| match f.field_type {
-            FieldType::String => format!("\"{}\": \"\"", f.name),
-            FieldType::Bool => format!("\"{}\": false", f.name),
-            FieldType::Int => format!("\"{}\": 0", f.name),
-            FieldType::Float => format!("\"{}\": 0.0", f.name),
-        })
+        .map(|f| format!("\"{}\"", f.name))
         .collect::<Vec<_>>()
         .join(", ");
 
     let content = format!(
         r#"use blixt::prelude::*;
 use blixt::validate::Validator;
-use serde_json::json;
+use blixt::datastar::Signals;
 use crate::models::{snake}::{pascal};
 
 const PER_PAGE: u32 = 10;
@@ -244,10 +239,7 @@ pub async fn index(
     pagination: PaginationParams,
 ) -> Result<impl IntoResponse> {{
     let page = fetch_page(&ctx.db, pagination.page()).await?;
-    let html = {pascal}Index {{ page }}
-        .render()
-        .map_err(|e| Error::Internal(e.to_string()))?;
-    Ok(Html(html))
+    render!({pascal}Index {{ page }})
 }}
 
 pub async fn show(
@@ -255,10 +247,7 @@ pub async fn show(
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse> {{
     let item = {pascal}::find_by_id(&ctx.db, id).await?;
-    let html = {pascal}Show {{ item }}
-        .render()
-        .map_err(|e| Error::Internal(e.to_string()))?;
-    Ok(Html(html))
+    render!({pascal}Show {{ item }})
 }}
 
 pub async fn create(
@@ -273,7 +262,7 @@ pub async fn create(
     let page = fetch_page(&ctx.db, 1).await?;
     SseResponse::new()
         .patch({pascal}ListFragment {{ page }})?
-        .signals(&json!({{{signal_reset_pairs}}}))
+        .signals(&Signals::clear(&[{signal_clear_keys}]))
 }}
 
 pub async fn update(
