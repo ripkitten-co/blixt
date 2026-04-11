@@ -11,7 +11,7 @@
                 <div>
                     <div class="text-[11px] font-medium text-zinc-500 uppercase tracking-wider mb-2">{{ subsection.title }}</div>
                     <ul class="space-y-1">
-                        {% for pg in subsection.pages | sort(attribute="weight") %}
+                        {% for pg in subsection.pages %}
                         <li>
                             <a href="{{ pg.permalink }}"
                                class="block py-0.5 {% if pg.permalink == current_path %}text-amber-500{% else %}text-zinc-400 hover:text-zinc-200{% endif %} transition-colors">

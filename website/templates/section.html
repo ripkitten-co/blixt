@@ -7,7 +7,8 @@
     <p class="text-zinc-400 text-sm mb-8">{{ section.description }}</p>
     {% endif %}
 
-    {% for pg in section.pages | sort(attribute="weight") %}
+    {% if section.pages %}
+    {% for pg in section.pages %}
     <a href="{{ pg.permalink }}" class="block border border-zinc-800/80 rounded-lg bg-zinc-900/40 p-4 mb-3 hover:border-zinc-700 transition-colors">
         <div class="text-sm font-medium text-zinc-200">{{ pg.title }}</div>
         {% if pg.description %}
@@ -15,11 +16,12 @@
         {% endif %}
     </a>
     {% endfor %}
+    {% endif %}
 
     {% for subsection_path in section.subsections %}
         {% set subsection = get_section(path=subsection_path) %}
         <h2 class="text-lg font-medium text-zinc-200 mt-8 mb-4">{{ subsection.title }}</h2>
-        {% for pg in subsection.pages | sort(attribute="weight") %}
+        {% for pg in subsection.pages %}
         <a href="{{ pg.permalink }}" class="block border border-zinc-800/80 rounded-lg bg-zinc-900/40 p-4 mb-3 hover:border-zinc-700 transition-colors">
             <div class="text-sm font-medium text-zinc-200">{{ pg.title }}</div>
             {% if pg.description %}

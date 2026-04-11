@@ -12,7 +12,7 @@ Blixt uses [SQLx](https://docs.rs/sqlx) for async database access with compile-t
 
 Set `DATABASE_URL` in your `.env` file:
 
-```env
+```bash
 # PostgreSQL
 DATABASE_URL=postgres://user:password@localhost:5432/myapp
 
