@@ -41,6 +41,8 @@ pub mod db;
 pub mod error;
 /// Flash messages and redirects.
 pub mod flash;
+/// Form extraction with CSRF validation.
+pub mod form;
 /// Background job runner.
 pub mod jobs;
 /// Structured logging setup.
@@ -91,6 +93,7 @@ pub mod prelude {
     pub use crate::db::DbPool;
     pub use crate::error::{Error, Result};
     pub use crate::flash::{Flash, Redirect};
+    pub use crate::form::{CsrfToken, Form};
     pub use crate::jobs::{Job, JobRunner, job_fn};
     pub use crate::logging::init_tracing;
     pub use crate::mailer::{Mailer, MailerConfig};
