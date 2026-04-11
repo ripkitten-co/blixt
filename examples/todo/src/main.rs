@@ -66,9 +66,9 @@ async fn create(
     v.str_field(&title, "title").not_empty().max_length(255);
     v.check()?;
     let title = title.trim().to_owned();
-    query!("INSERT INTO todos (title) VALUES (?)")
-        .bind(&title)
-        .execute(&ctx.db)
+    Insert::into("todos")
+        .set("title", title.as_str())
+        .execute_no_return(&ctx.db)
         .await?;
     let page = fetch_page(&ctx.db, 1).await?;
     SseResponse::new()
@@ -94,8 +94,8 @@ async fn remove(
     Path(id): Path<i64>,
     pagination: PaginationParams,
 ) -> Result<impl IntoResponse> {
-    query!("DELETE FROM todos WHERE id = ?")
-        .bind(id)
+    Delete::from("todos")
+        .where_eq("id", id)
         .execute(&ctx.db)
         .await?;
     let mut page = fetch_page(&ctx.db, pagination.page()).await?;
