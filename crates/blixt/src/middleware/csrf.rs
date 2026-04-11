@@ -5,7 +5,7 @@ use axum::response::{IntoResponse, Response};
 use uuid::Uuid;
 
 static X_CSRF_TOKEN: HeaderName = HeaderName::from_static("x-csrf-token");
-static CSRF_COOKIE_NAME: &str = "blixt_csrf";
+pub(crate) static CSRF_COOKIE_NAME: &str = "blixt_csrf";
 
 /// Axum middleware implementing CSRF protection via the double-submit cookie
 /// pattern with Origin header validation as defense-in-depth.
@@ -114,7 +114,7 @@ fn is_csrf_token_valid(headers: &HeaderMap) -> bool {
 }
 
 /// Extracts a named cookie value from the Cookie header.
-fn extract_cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
+pub(crate) fn extract_cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
     headers
         .get(COOKIE)
         .and_then(|v| v.to_str().ok())
@@ -133,7 +133,7 @@ fn extract_cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
 ///
 /// While CSRF tokens are not long-term secrets, constant-time comparison is
 /// a defense-in-depth measure against timing side-channels.
-fn constant_time_eq(a: &str, b: &str) -> bool {
+pub(crate) fn constant_time_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
     }

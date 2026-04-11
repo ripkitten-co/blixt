@@ -1,5 +1,3 @@
-use askama::Template;
-use axum::response::{Html, IntoResponse};
 use blixt::prelude::*;
 
 #[derive(Template)]
@@ -8,14 +6,10 @@ struct HelloPage {
     greeting: String,
 }
 
-async fn index() -> impl IntoResponse {
-    Html(
-        HelloPage {
-            greeting: "Hello from Blixt!".to_string(),
-        }
-        .render()
-        .unwrap_or_default(),
-    )
+async fn index() -> Result<impl IntoResponse> {
+    render!(HelloPage {
+        greeting: "Hello from Blixt!".to_string(),
+    })
 }
 
 #[tokio::main]

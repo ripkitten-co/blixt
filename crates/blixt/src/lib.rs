@@ -39,6 +39,10 @@ pub mod datastar;
 pub mod db;
 /// Error types and HTTP status mapping.
 pub mod error;
+/// Flash messages and redirects.
+pub mod flash;
+/// Form extraction with CSRF validation.
+pub mod form;
 /// Background job runner.
 pub mod jobs;
 /// Structured logging setup.
@@ -57,15 +61,39 @@ pub mod validate;
 #[cfg(test)]
 pub(crate) mod test_helpers;
 
+/// Renders an Askama template and wraps it in an HTML response.
+///
+/// Converts template rendering errors to `Error::Internal` and returns
+/// `Ok(Html(html))`, suitable for handlers returning `Result<impl IntoResponse>`.
+///
+/// ```rust,ignore
+/// pub async fn index() -> Result<impl IntoResponse> {
+///     render!(HomePage { title: "Welcome" })
+/// }
+/// ```
+#[macro_export]
+macro_rules! render {
+    ($template:expr) => {{
+        let __blixt_html = $template
+            .render()
+            .map_err(|e| $crate::error::Error::Internal(e.to_string()))?;
+        Ok($crate::prelude::Html(__blixt_html))
+    }};
+}
+
 /// Common re-exports for Blixt applications.
 pub mod prelude {
     pub use crate::app::App;
     pub use crate::auth::{AuthUser, Claims, OptionalAuth};
     pub use crate::config::{Config, Environment};
     pub use crate::context::AppContext;
-    pub use crate::datastar::{DatastarSignals, SseFragment, SseResponse, SseSignals, SseStream};
+    pub use crate::datastar::{
+        DatastarSignals, Signals, SseFragment, SseResponse, SseSignals, SseStream,
+    };
     pub use crate::db::DbPool;
     pub use crate::error::{Error, Result};
+    pub use crate::flash::{Flash, Redirect};
+    pub use crate::form::{CsrfToken, Form};
     pub use crate::jobs::{Job, JobRunner, job_fn};
     pub use crate::logging::init_tracing;
     pub use crate::mailer::{Mailer, MailerConfig};
@@ -83,5 +111,45 @@ pub mod prelude {
     pub use sqlx::FromRow;
     pub use tracing::{debug, error, info, warn};
 
-    pub use crate::{query, query_as, query_scalar};
+    pub use crate::{query, query_as, query_scalar, render};
+}
+
+#[cfg(test)]
+mod render_tests {
+    use crate::prelude::*;
+
+    #[derive(askama::Template)]
+    #[template(source = "<h1>{{ title }}</h1>", ext = "html")]
+    struct TestTemplate {
+        title: String,
+    }
+
+    #[test]
+    fn render_macro_produces_html_response() {
+        fn handler() -> Result<Html<String>> {
+            render!(TestTemplate {
+                title: "Hello".to_string()
+            })
+        }
+        let result = handler();
+        assert!(result.is_ok());
+        assert!(result.unwrap().0.contains("<h1>Hello</h1>"));
+    }
+
+    #[derive(askama::Template)]
+    #[template(source = "{{ value }}", ext = "html")]
+    struct EscapeTemplate {
+        value: String,
+    }
+
+    #[test]
+    fn render_macro_escapes_html() {
+        fn handler() -> Result<Html<String>> {
+            render!(EscapeTemplate {
+                value: "<script>alert('xss')</script>".to_string()
+            })
+        }
+        let html = handler().unwrap().0;
+        assert!(!html.contains("<script>"));
+    }
 }
