@@ -3,6 +3,8 @@ mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
+/// Type-safe query builder for CRUD operations.
+pub mod builder;
 mod macros;
 
 #[cfg(feature = "postgres")]
