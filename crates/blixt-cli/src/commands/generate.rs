@@ -23,8 +23,7 @@ pub fn generate_controller(name: &str) -> Result<(), String> {
 pub fn generate_model(name: &str, field_args: &[&str]) -> Result<(), String> {
     let base = current_dir()?;
     let fields = parse_fields(field_args)?;
-    let dialect = detect_dialect();
-    generate_model_in(&base, name, &fields, dialect)
+    generate_model_in(&base, name, &fields)
 }
 
 /// Generates a full CRUD scaffold: controller, model, and list fragment.
@@ -42,8 +41,7 @@ pub fn generate_scaffold(name: &str, field_args: &[&str]) -> Result<(), String> 
     } else {
         fields
     };
-    let dialect = detect_dialect();
-    generate_scaffold_in(&base, name, &fields, dialect)
+    generate_scaffold_in(&base, name, &fields)
 }
 
 // --- Path-aware implementations (testable without chdir) ---
@@ -63,17 +61,12 @@ fn generate_controller_in(base: &Path, name: &str) -> Result<(), String> {
 }
 
 /// Model generation rooted at `base`.
-fn generate_model_in(
-    base: &Path,
-    name: &str,
-    fields: &[FieldDef],
-    dialect: DbDialect,
-) -> Result<(), String> {
+fn generate_model_in(base: &Path, name: &str, fields: &[FieldDef]) -> Result<(), String> {
     let snake = to_snake_case(name);
     let pascal = to_pascal_case(name);
     let plural = pluralize(&snake);
 
-    write_model_file(base, &snake, &pascal, fields, dialect)?;
+    write_model_file(base, &snake, &pascal, fields)?;
     update_mod_file(base, "models", &snake)?;
     write_migration_file(base, &snake, fields)?;
 
@@ -86,16 +79,11 @@ fn generate_model_in(
 }
 
 /// Scaffold generation rooted at `base`.
-fn generate_scaffold_in(
-    base: &Path,
-    name: &str,
-    fields: &[FieldDef],
-    dialect: DbDialect,
-) -> Result<(), String> {
+fn generate_scaffold_in(base: &Path, name: &str, fields: &[FieldDef]) -> Result<(), String> {
     let snake = to_snake_case(name);
     let pascal = to_pascal_case(name);
 
-    generate_model_in(base, name, fields, dialect)?;
+    generate_model_in(base, name, fields)?;
     write_scaffold_controller_file(base, &snake, &pascal, fields)?;
     update_mod_file(base, "controllers", &snake)?;
     write_scaffold_index_template(base, &snake, &pascal, fields)?;
@@ -483,20 +471,12 @@ fn write_scaffold_show_template(
     write_file(&path, &content)
 }
 
-fn placeholder(n: usize, dialect: DbDialect) -> String {
-    match dialect {
-        DbDialect::Postgres => format!("${n}"),
-        DbDialect::Sqlite => "?".to_string(),
-    }
-}
-
-/// Writes the model Rust source file with SQLx derives and CRUD methods.
+/// Writes the model Rust source file with query builder CRUD methods.
 fn write_model_file(
     base: &Path,
     snake: &str,
     pascal: &str,
     fields: &[FieldDef],
-    dialect: DbDialect,
 ) -> Result<(), String> {
     let dir = base.join("src/models");
     let path = dir.join(format!("{snake}.rs"));
@@ -508,43 +488,34 @@ fn write_model_file(
         .collect();
 
     let all_columns = build_column_list(fields);
-
-    let select_cols = all_columns.join(", ");
+    let columns_literal: String = all_columns
+        .iter()
+        .map(|c| format!("\"{}\"", c))
+        .collect::<Vec<_>>()
+        .join(", ");
 
     let mut methods = String::new();
 
-    let ph1 = placeholder(1, dialect);
-
     // find_by_id
-    methods.push_str(&format!(
-        r#"    pub async fn find_by_id(pool: &DbPool, id: i64) -> Result<Self> {{
-        Ok(query_as!(Self, "SELECT {select_cols} FROM {plural} WHERE id = {ph1}")
-            .bind(id)
-            .fetch_one(pool)
-            .await?)
-    }}"#
-    ));
+    methods.push_str(
+        r#"    pub async fn find_by_id(pool: &DbPool, id: i64) -> Result<Self> {
+        Select::from(TABLE).columns(COLUMNS).where_eq("id", id)
+            .fetch_one::<Self>(pool).await
+    }"#,
+    );
 
     // find_all
-    methods.push_str(&format!(
+    methods.push_str(
         r#"
 
-    pub async fn find_all(pool: &DbPool) -> Result<Vec<Self>> {{
-        Ok(query_as!(Self, "SELECT {select_cols} FROM {plural} ORDER BY id DESC")
-            .fetch_all(pool)
-            .await?)
-    }}"#
-    ));
+    pub async fn find_all(pool: &DbPool) -> Result<Vec<Self>> {
+        Select::from(TABLE).columns(COLUMNS).order_by("id", Order::Desc)
+            .fetch_all::<Self>(pool).await
+    }"#,
+    );
 
     // create + update only when fields are present
     if !fields.is_empty() {
-        let user_col_names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
-        let insert_cols = user_col_names.join(", ");
-        let insert_placeholders: Vec<String> = (1..=fields.len())
-            .map(|i| placeholder(i, dialect))
-            .collect();
-        let insert_placeholders = insert_placeholders.join(", ");
-
         let create_params: String = fields
             .iter()
             .map(|f| {
@@ -556,60 +527,55 @@ fn write_model_file(
             })
             .collect();
 
-        let create_binds: String = fields
+        let create_sets: String = fields
             .iter()
-            .map(|f| format!("\n            .bind({})", f.name))
+            .map(|f| format!("\n            .set(\"{name}\", {name})", name = f.name))
             .collect();
 
         methods.push_str(&format!(
             r#"
 
     pub async fn create(pool: &DbPool{create_params}) -> Result<Self> {{
-        Ok(query_as!(Self, "INSERT INTO {plural} ({insert_cols}) VALUES ({insert_placeholders}) RETURNING {select_cols}"){create_binds}
-            .fetch_one(pool)
-            .await?)
+        Insert::into(TABLE){create_sets}
+            .returning::<Self>(COLUMNS)
+            .execute(pool).await
     }}"#
         ));
 
-        let set_clauses: Vec<String> = fields
+        let update_params = create_params.clone();
+        let update_sets: String = fields
             .iter()
-            .enumerate()
-            .map(|(i, f)| format!("{} = {}", f.name, placeholder(i + 1, dialect)))
+            .map(|f| format!("\n            .set(\"{name}\", {name})", name = f.name))
             .collect();
-        let set_clause = format!("{}, updated_at = CURRENT_TIMESTAMP", set_clauses.join(", "));
-        let where_ph = placeholder(fields.len() + 1, dialect);
-
-        let update_params: String = create_params.clone();
-        let mut update_binds = create_binds.clone();
-        update_binds.push_str("\n            .bind(id)");
 
         methods.push_str(&format!(
             r#"
 
     pub async fn update(pool: &DbPool, id: i64{update_params}) -> Result<Self> {{
-        Ok(query_as!(Self, "UPDATE {plural} SET {set_clause} WHERE id = {where_ph} RETURNING {select_cols}"){update_binds}
-            .fetch_one(pool)
-            .await?)
+        Update::table(TABLE){update_sets}
+            .set_timestamp("updated_at")
+            .where_eq("id", id)
+            .returning::<Self>(COLUMNS)
+            .execute(pool).await
     }}"#
         ));
     }
 
     // delete
-    methods.push_str(&format!(
+    methods.push_str(
         r#"
 
-    pub async fn delete(pool: &DbPool, id: i64) -> Result<()> {{
-        query!("DELETE FROM {plural} WHERE id = {ph1}")
-            .bind(id)
-            .execute(pool)
-            .await?;
-        Ok(())
-    }}"#
-    ));
+    pub async fn delete(pool: &DbPool, id: i64) -> Result<()> {
+        Delete::from(TABLE).where_eq("id", id).execute(pool).await
+    }"#,
+    );
 
     let content = format!(
         r#"use blixt::prelude::*;
 use sqlx::types::chrono::{{DateTime, Utc}};
+
+const TABLE: &str = "{plural}";
+const COLUMNS: &[&str] = &[{columns_literal}];
 
 #[derive(Debug, FromRow, Serialize, Deserialize)]
 pub struct {pascal} {{
@@ -959,8 +925,7 @@ mod tests {
         let tmp = TempDir::new().expect("failed to create temp dir");
         let base = tmp.path();
 
-        generate_model_in(base, "User", &[], DbDialect::Postgres)
-            .expect("generate_model_in failed");
+        generate_model_in(base, "User", &[]).expect("generate_model_in failed");
 
         let model =
             fs::read_to_string(base.join("src/models/user.rs")).expect("model file missing");
@@ -971,8 +936,8 @@ mod tests {
         assert!(model.contains("find_by_id"));
         assert!(model.contains("find_all"));
         assert!(model.contains("delete"));
-        assert!(model.contains("query_as!"));
-        assert!(model.contains("query!"));
+        assert!(model.contains("Select::from(TABLE)"));
+        assert!(model.contains("Delete::from(TABLE)"));
 
         let entries: Vec<_> = fs::read_dir(base.join("migrations"))
             .expect("migrations dir missing")
@@ -1003,7 +968,7 @@ mod tests {
             name: "name".into(),
             field_type: FieldType::String,
         }];
-        generate_scaffold_in(base, "Product", &default_fields, DbDialect::Postgres)
+        generate_scaffold_in(base, "Product", &default_fields)
             .expect("generate_scaffold_in failed");
 
         assert!(base.join("src/controllers/product.rs").exists());
@@ -1044,8 +1009,7 @@ mod tests {
             },
         ];
 
-        generate_model_in(base, "Article", &fields, DbDialect::Postgres)
-            .expect("generate_model_in failed");
+        generate_model_in(base, "Article", &fields).expect("generate_model_in failed");
 
         let model =
             fs::read_to_string(base.join("src/models/article.rs")).expect("model file missing");
@@ -1053,9 +1017,9 @@ mod tests {
         assert!(model.contains("pub published: bool"));
         assert!(model.contains("pub async fn create("));
         assert!(model.contains("pub async fn update("));
-        assert!(model.contains("INSERT INTO"));
-        assert!(model.contains("UPDATE articles SET"));
-        assert!(model.contains("RETURNING"));
+        assert!(model.contains("Insert::into(TABLE)"));
+        assert!(model.contains("Update::table(TABLE)"));
+        assert!(model.contains(".returning::<Self>(COLUMNS)"));
 
         let migration_dir = base.join("migrations");
         let entries: Vec<_> = fs::read_dir(&migration_dir)
@@ -1076,7 +1040,7 @@ mod tests {
             field_type: FieldType::String,
         }];
 
-        generate_scaffold_in(base, "Post", &fields, DbDialect::Postgres).expect("scaffold failed");
+        generate_scaffold_in(base, "Post", &fields).expect("scaffold failed");
 
         let controller =
             fs::read_to_string(base.join("src/controllers/post.rs")).expect("controller missing");
@@ -1122,8 +1086,7 @@ mod tests {
             },
         ];
 
-        generate_scaffold_in(base, "Widget", &fields, DbDialect::Postgres)
-            .expect("scaffold failed");
+        generate_scaffold_in(base, "Widget", &fields).expect("scaffold failed");
 
         let index = fs::read_to_string(base.join("templates/pages/widget/index.html"))
             .expect("index template missing");
@@ -1146,7 +1109,7 @@ mod tests {
             field_type: FieldType::String,
         }];
 
-        generate_scaffold_in(base, "Task", &fields, DbDialect::Postgres).expect("scaffold failed");
+        generate_scaffold_in(base, "Task", &fields).expect("scaffold failed");
 
         let list = fs::read_to_string(base.join("templates/fragments/task/list.html"))
             .expect("list fragment missing");
@@ -1176,8 +1139,7 @@ mod tests {
             },
         ];
 
-        generate_scaffold_in(base, "Product", &fields, DbDialect::Postgres)
-            .expect("scaffold failed");
+        generate_scaffold_in(base, "Product", &fields).expect("scaffold failed");
 
         let show = fs::read_to_string(base.join("templates/pages/product/show.html"))
             .expect("show template missing");
@@ -1195,7 +1157,7 @@ mod tests {
         let tmp = TempDir::new().expect("failed to create temp dir");
         let base = tmp.path();
 
-        generate_model_in(base, "User", &[], DbDialect::Postgres).expect("generate failed");
+        generate_model_in(base, "User", &[]).expect("generate failed");
 
         let mod_rs = fs::read_to_string(base.join("src/models/mod.rs")).expect("mod.rs missing");
         assert!(mod_rs.contains("pub mod user;"));
@@ -1210,8 +1172,7 @@ mod tests {
             field_type: FieldType::String,
         }];
 
-        generate_scaffold_in(base, "Widget", &fields, DbDialect::Postgres)
-            .expect("scaffold failed");
+        generate_scaffold_in(base, "Widget", &fields).expect("scaffold failed");
 
         let models_mod =
             fs::read_to_string(base.join("src/models/mod.rs")).expect("models/mod.rs missing");
@@ -1231,7 +1192,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("mod.rs"), "pub mod existing;\n").unwrap();
 
-        generate_model_in(base, "User", &[], DbDialect::Postgres).expect("generate failed");
+        generate_model_in(base, "User", &[]).expect("generate failed");
 
         let mod_rs = fs::read_to_string(base.join("src/models/mod.rs")).expect("mod.rs missing");
         assert!(mod_rs.contains("pub mod existing;"));
@@ -1239,7 +1200,7 @@ mod tests {
     }
 
     #[test]
-    fn model_uses_postgres_placeholders() {
+    fn model_uses_query_builder() {
         let tmp = TempDir::new().expect("failed to create temp dir");
         let base = tmp.path();
         let fields = vec![
@@ -1253,31 +1214,21 @@ mod tests {
             },
         ];
 
-        generate_model_in(base, "Post", &fields, DbDialect::Postgres).expect("generate failed");
+        generate_model_in(base, "Post", &fields).expect("generate failed");
 
         let model = fs::read_to_string(base.join("src/models/post.rs")).expect("model missing");
-        assert!(model.contains("WHERE id = $1"));
-        assert!(model.contains("VALUES ($1, $2)"));
-        assert!(model.contains("title = $1, active = $2"));
-        assert!(model.contains("WHERE id = $3"));
-        assert!(!model.contains(" ? "));
-    }
-
-    #[test]
-    fn model_uses_sqlite_placeholders() {
-        let tmp = TempDir::new().expect("failed to create temp dir");
-        let base = tmp.path();
-        let fields = vec![FieldDef {
-            name: "title".into(),
-            field_type: FieldType::String,
-        }];
-
-        generate_model_in(base, "Item", &fields, DbDialect::Sqlite).expect("generate failed");
-
-        let model = fs::read_to_string(base.join("src/models/item.rs")).expect("model missing");
-        assert!(model.contains("WHERE id = ?"));
-        assert!(model.contains("VALUES (?)"));
-        assert!(model.contains("title = ?"));
+        assert!(model.contains("const TABLE: &str = \"posts\""));
+        assert!(model.contains("const COLUMNS: &[&str]"));
+        assert!(model.contains("Select::from(TABLE)"));
+        assert!(model.contains("Insert::into(TABLE)"));
+        assert!(model.contains("Update::table(TABLE)"));
+        assert!(model.contains("Delete::from(TABLE)"));
+        assert!(model.contains(".where_eq(\"id\", id)"));
+        assert!(model.contains(".set(\"title\", title)"));
+        assert!(model.contains(".set(\"active\", active)"));
+        assert!(model.contains(".set_timestamp(\"updated_at\")"));
         assert!(!model.contains("$1"));
+        assert!(!model.contains("query_as!"));
+        assert!(!model.contains("query!"));
     }
 }
