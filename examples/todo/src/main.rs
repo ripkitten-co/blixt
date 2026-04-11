@@ -1,6 +1,5 @@
 use blixt::prelude::*;
 use blixt::validate::Validator;
-use serde_json::json;
 
 const PER_PAGE: u32 = 5;
 
@@ -42,10 +41,7 @@ async fn index(
         &PaginationParams::new(pagination.page(), PER_PAGE),
     )
     .await?;
-    let html = HomePage { page }
-        .render()
-        .map_err(|e| Error::Internal(e.to_string()))?;
-    Ok(Html(html))
+    render!(HomePage { page })
 }
 
 async fn page_handler(
@@ -77,7 +73,7 @@ async fn create(
     let page = fetch_page(&ctx.db, 1).await?;
     SseResponse::new()
         .patch(TodoListFragment { page })?
-        .signals(&json!({"title": ""}))
+        .signals(&Signals::clear(&["title"]))
 }
 
 async fn toggle(
@@ -123,10 +119,7 @@ async fn main() -> Result<()> {
     init_tracing()?;
     let config = Config::from_env()?;
     let pool = blixt::db::create_pool(&config).await?;
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .map_err(|e| Error::Internal(format!("migration failed: {e}")))?;
+    blixt::db::migrate(&pool).await?;
     let ctx = AppContext::new(pool, config.clone());
     App::new(config)
         .router(routes().with_state(ctx))

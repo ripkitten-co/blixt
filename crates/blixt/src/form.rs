@@ -1,5 +1,4 @@
 use axum::extract::{FromRequest, FromRequestParts};
-use axum::http::header::COOKIE;
 use axum::http::request::Parts;
 use axum::http::{Method, Request, StatusCode};
 use axum::response::{IntoResponse, Response};
