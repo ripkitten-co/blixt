@@ -26,6 +26,9 @@ enum Commands {
         /// Database backend. Prompts interactively if not specified.
         #[arg(long, value_enum)]
         db: Option<DbBackend>,
+        /// Scaffold authentication (register, login, sessions)
+        #[arg(long)]
+        auth: bool,
     },
     /// Start the development server
     Dev,
@@ -59,6 +62,8 @@ enum GenerateKind {
         /// Field definitions (e.g. title:string body:text active:bool)
         fields: Vec<String>,
     },
+    /// Generate authentication scaffold (users, sessions, login/register)
+    Auth,
 }
 
 #[derive(Subcommand)]
@@ -86,12 +91,23 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::New { name, db } => {
+        Commands::New { name, db, auth } => {
             let name = require_valid_name(&name);
             let runtime = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
             if let Err(message) = runtime.block_on(commands::new::run(&name, db)) {
                 eprintln!("{} {message}", style("error:").red().bold());
                 std::process::exit(1);
+            }
+            if auth {
+                let project_dir = std::path::Path::new(".").join(&name);
+                if let Err(message) = commands::generate_auth::generate_auth_in(&project_dir) {
+                    eprintln!("{} {message}", style("error:").red().bold());
+                    std::process::exit(1);
+                }
+                if let Err(message) = commands::generate_auth::patch_new_project(&project_dir) {
+                    eprintln!("{} {message}", style("error:").red().bold());
+                    std::process::exit(1);
+                }
             }
         }
         Commands::Dev => {
@@ -133,6 +149,12 @@ fn main() {
                 let name = require_valid_name(&name);
                 let field_strs: Vec<&str> = fields.iter().map(|s| s.as_str()).collect();
                 if let Err(msg) = commands::generate::generate_scaffold(&name, &field_strs) {
+                    eprintln!("{} {msg}", style("error:").red().bold());
+                    std::process::exit(1);
+                }
+            }
+            GenerateKind::Auth => {
+                if let Err(msg) = commands::generate_auth::generate_auth() {
                     eprintln!("{} {msg}", style("error:").red().bold());
                     std::process::exit(1);
                 }
