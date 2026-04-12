@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::cache::{Cache, MemoryCache};
 use crate::config::Config;
 use crate::db::DbPool;
 use crate::mailer::Mailer;
@@ -13,15 +14,18 @@ pub struct AppContext {
     pub config: Arc<Config>,
     /// SMTP mailer. `None` when SMTP is not configured (e.g. local dev).
     pub mailer: Option<Arc<Mailer>>,
+    /// Cache for reducing database load and storing ephemeral data.
+    pub cache: Cache,
 }
 
 impl AppContext {
-    /// Creates a new context from a connection pool and configuration.
+    /// Creates a new context with an in-memory cache (10,000 entries).
     pub fn new(db: DbPool, config: Config) -> Self {
         Self {
             db,
             config: Arc::new(config),
             mailer: None,
+            cache: Cache::new(Arc::new(MemoryCache::new(10_000))),
         }
     }
 
@@ -34,6 +38,12 @@ impl AppContext {
     /// Adds an optional mailer to the context.
     pub fn with_mailer_opt(mut self, mailer: Option<Mailer>) -> Self {
         self.mailer = mailer.map(Arc::new);
+        self
+    }
+
+    /// Overrides the default cache backend.
+    pub fn with_cache(mut self, cache: Cache) -> Self {
+        self.cache = cache;
         self
     }
 }
