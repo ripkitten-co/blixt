@@ -17,13 +17,14 @@ blixt <COMMAND>
 Create a new Blixt project.
 
 ```
-blixt new <NAME> [--db <BACKEND>]
+blixt new <NAME> [--db <BACKEND>] [--auth]
 ```
 
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `NAME` | yes | Project name (used as directory name and crate name) |
 | `--db <BACKEND>` | no | Database backend: `postgres` (alias `pg`) or `sqlite`. Prompts interactively if omitted. |
+| `--auth` | no | Include authentication scaffold (users, sessions, login/register/password reset) |
 
 The command creates a full project directory with:
 
@@ -39,6 +40,7 @@ The command creates a full project directory with:
 ```bash
 blixt new my_app --db postgres
 blixt new blog --db sqlite
+blixt new my_app --auth       # includes auth scaffold with routes pre-wired
 blixt new my_app              # interactive database prompt
 ```
 
@@ -153,6 +155,35 @@ If no fields are specified, a single `name:string` field is created by default.
 ```bash
 blixt generate scaffold task title:string priority:int completed:bool
 blixt generate scaffold item                        # defaults to name:string
+```
+
+### blixt generate auth
+
+Generate a complete authentication scaffold.
+
+```
+blixt generate auth
+```
+
+Creates:
+
+- `migrations/*_create_users.sql` with email, password_hash, role, reset token columns
+- `migrations/*_create_sessions.sql` with token_hash and expiry
+- `src/models/user.rs` with registration, login, password reset methods
+- `src/models/session.rs` with create, revoke, cleanup methods
+- `src/controllers/auth.rs` with 9 handlers (register, login, logout, forgot/reset password)
+- `templates/pages/auth/` with register, login, forgot password, reset password pages
+- `templates/emails/reset_password.html` for password reset emails
+- Updates `src/models/mod.rs` and `src/controllers/mod.rs`
+
+After generation, the CLI prints the routes to add to your `src/main.rs`.
+
+Password reset emails are sent via the `Mailer` when SMTP is configured. Without SMTP variables, reset links are logged to stdout for local development.
+
+**Example:**
+
+```bash
+blixt generate auth
 ```
 
 ## blixt db
