@@ -29,6 +29,8 @@ compile_error!("Enable at least one database backend feature: `postgres` or `sql
 pub mod app;
 /// Authentication: JWT, password hashing, extractors.
 pub mod auth;
+/// Caching with in-memory and optional Redis backends.
+pub mod cache;
 /// Environment-aware configuration.
 pub mod config;
 /// Shared application state.
@@ -88,6 +90,7 @@ pub mod prelude {
     pub use crate::app::App;
     pub use crate::auth::cookie as auth_cookie;
     pub use crate::auth::{AuthUser, Claims, OptionalAuth};
+    pub use crate::cache::Cache;
     pub use crate::config::{Config, Environment};
     pub use crate::context::AppContext;
     pub use crate::datastar::{
