@@ -119,9 +119,8 @@ async fn notify_new_job(pool: &DbPool) {
 
 // --- Worker ---
 
-type HandlerFn = Arc<
-    dyn Fn(Value) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> + Send + Sync,
->;
+type HandlerFn =
+    Arc<dyn Fn(Value) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> + Send + Sync>;
 
 /// Processes jobs from the persistent queue.
 ///
@@ -221,7 +220,10 @@ impl Worker {
             }
 
             for job in jobs {
-                let permit = semaphore.clone().acquire_owned().await
+                let permit = semaphore
+                    .clone()
+                    .acquire_owned()
+                    .await
                     .map_err(|e| Error::Internal(format!("semaphore: {e}")))?;
                 let pool = pool.clone();
                 let handlers = handlers.clone();
@@ -261,7 +263,7 @@ async fn fetch_pending_jobs(pool: &DbPool, queue: &str, limit: i64) -> Result<Ve
              LIMIT $3 \
              FOR UPDATE SKIP LOCKED \
          ) \
-         RETURNING id, job_type, payload, attempts, max_attempts"
+         RETURNING id, job_type, payload, attempts, max_attempts",
     )
     .bind(queue)
     .bind(&now)

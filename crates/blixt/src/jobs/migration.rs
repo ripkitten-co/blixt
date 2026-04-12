@@ -49,7 +49,10 @@ CREATE INDEX IF NOT EXISTS idx_blixt_jobs_fetch
 
 /// Creates the `_blixt_jobs` table if it doesn't exist.
 pub async fn ensure_jobs_table(pool: &DbPool) -> Result<()> {
-    for statement in CREATE_JOBS_TABLE.split(";\n").filter(|s| !s.trim().is_empty()) {
+    for statement in CREATE_JOBS_TABLE
+        .split(";\n")
+        .filter(|s| !s.trim().is_empty())
+    {
         sqlx::query(statement)
             .execute(pool)
             .await
