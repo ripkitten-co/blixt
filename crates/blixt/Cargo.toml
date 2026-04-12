@@ -36,6 +36,9 @@ uuid.workspace = true
 urlencoding.workspace = true
 serde_urlencoded.workspace = true
 sha2.workspace = true
+async-trait.workspace = true
+moka.workspace = true
+deadpool-redis = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = "3"
@@ -44,6 +47,7 @@ tempfile = "3"
 default = ["postgres"]
 postgres = ["sqlx/postgres"]
 sqlite = ["sqlx/sqlite"]
+redis = ["deadpool-redis"]
 
 [package.metadata.docs.rs]
 all-features = true
