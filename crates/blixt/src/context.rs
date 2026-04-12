@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::config::Config;
 use crate::db::DbPool;
+use crate::mailer::Mailer;
 
 #[derive(Clone)]
 /// Shared state passed to route handlers via Axum's `State` extractor.
@@ -10,6 +11,8 @@ pub struct AppContext {
     pub db: DbPool,
     /// Application configuration.
     pub config: Arc<Config>,
+    /// SMTP mailer. `None` when SMTP is not configured (e.g. local dev).
+    pub mailer: Option<Arc<Mailer>>,
 }
 
 impl AppContext {
@@ -18,7 +21,20 @@ impl AppContext {
         Self {
             db,
             config: Arc::new(config),
+            mailer: None,
         }
+    }
+
+    /// Adds a mailer to the context.
+    pub fn with_mailer(mut self, mailer: Mailer) -> Self {
+        self.mailer = Some(Arc::new(mailer));
+        self
+    }
+
+    /// Adds an optional mailer to the context.
+    pub fn with_mailer_opt(mut self, mailer: Option<Mailer>) -> Self {
+        self.mailer = mailer.map(Arc::new);
+        self
     }
 }
 

@@ -7,12 +7,15 @@
 /// to the `Authorization: Bearer` header. This supports both browser sessions
 /// (cookie) and API clients (header).
 ///
-/// The JWT secret is read from [`JwtSecret`] in request extensions. The
-/// framework's middleware layer inserts this automatically from [`AppContext`].
+/// When a [`DbPool`](crate::db::DbPool) is present in request extensions,
+/// the extractor also verifies that a matching, non-expired session exists
+/// in the `sessions` table. This enables immediate session revocation via
+/// logout. Without a pool, only JWT signature and expiry are checked.
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 
 use super::cookie::AUTH_COOKIE_NAME;
+use crate::db::DbPool;
 
 /// Wrapper for the JWT signing secret, stored in request extensions.
 ///
@@ -88,6 +91,35 @@ fn jwt_secret_from_extensions(parts: &Parts) -> crate::error::Result<String> {
         ))
 }
 
+/// Checks whether an active session exists for the given token.
+///
+/// When a `DbPool` is available in extensions, queries the `sessions` table
+/// for a row matching the token hash that hasn't expired. Returns `true` if
+/// the session is valid, or if no pool is available (stateless fallback).
+async fn session_is_valid(parts: &Parts, token: &str) -> bool {
+    let Some(pool) = parts.extensions.get::<DbPool>() else {
+        return true;
+    };
+
+    let token_hash = super::sha256_hex(token);
+
+    #[derive(sqlx::FromRow)]
+    struct SessionCheck {
+        expires_at: sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>,
+    }
+
+    let result = crate::db::builder::Select::from("sessions")
+        .columns(&["expires_at"])
+        .where_eq("token_hash", &*token_hash)
+        .fetch_optional::<SessionCheck>(pool)
+        .await;
+
+    match result {
+        Ok(Some(session)) => session.expires_at > sqlx::types::chrono::Utc::now(),
+        _ => false,
+    }
+}
+
 impl<S> FromRequestParts<S> for AuthUser
 where
     S: Send + Sync,
@@ -98,6 +130,10 @@ where
         let token = extract_token(parts).ok_or(crate::error::Error::Unauthorized)?;
         let secret = jwt_secret_from_extensions(parts)?;
         let claims = super::jwt::validate_token(&token, &secret)?;
+
+        if !session_is_valid(parts, &token).await {
+            return Err(crate::error::Error::Unauthorized);
+        }
 
         Ok(Self {
             user_id: claims.sub,
@@ -123,10 +159,15 @@ where
         };
 
         match super::jwt::validate_token(&token, &secret) {
-            Ok(claims) => Ok(Self(Some(AuthUser {
-                user_id: claims.sub,
-                role: claims.role,
-            }))),
+            Ok(claims) => {
+                if !session_is_valid(parts, &token).await {
+                    return Ok(Self(None));
+                }
+                Ok(Self(Some(AuthUser {
+                    user_id: claims.sub,
+                    role: claims.role,
+                })))
+            }
             Err(_) => Ok(Self(None)),
         }
     }

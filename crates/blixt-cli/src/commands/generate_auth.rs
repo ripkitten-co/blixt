@@ -38,6 +38,7 @@ pub fn generate_auth_in(base: &Path) -> Result<(), String> {
         "pages/auth/reset_password.html",
         reset_password_template(),
     )?;
+    write_template(base, "emails/reset_password.html", reset_email_template())?;
 
     println!(
         "  {} auth scaffold (models, controller, migrations, templates)",
@@ -63,6 +64,8 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'user',
     email_verified_at TIMESTAMPTZ,
+    reset_token_hash TEXT,
+    reset_token_expires_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -78,6 +81,8 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'user',
     email_verified_at DATETIME,
+    reset_token_hash TEXT,
+    reset_token_expires_at DATETIME,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -139,7 +144,7 @@ fn write_user_model(base: &Path, _dialect: DbDialect) -> Result<(), String> {
     let path = dir.join("user.rs");
 
     let content = r#"use blixt::prelude::*;
-use blixt::auth::password;
+use blixt::auth::{self, password};
 use blixt::validate::Validator;
 use sqlx::types::chrono::{DateTime, Utc};
 
@@ -213,6 +218,46 @@ impl User {
         }
         Ok(())
     }
+
+    pub async fn set_reset_token(pool: &DbPool, id: i64, token_hash: &str, expires_at: DateTime<Utc>) -> Result<()> {
+        Update::table(TABLE)
+            .set("reset_token_hash", token_hash)
+            .set("reset_token_expires_at", &expires_at.to_rfc3339())
+            .set_timestamp("updated_at")
+            .where_eq("id", id)
+            .execute_no_return(pool).await
+    }
+
+    pub async fn find_by_reset_token(pool: &DbPool, token: &str) -> Result<Self> {
+        let hash = auth::sha256_hex(token);
+        let user = Select::from(TABLE).columns(COLUMNS)
+            .where_eq("reset_token_hash", &*hash)
+            .fetch_one::<Self>(pool).await?;
+        // check expiry in Rust to stay dialect-agnostic
+        let expires: Option<DateTime<Utc>> = Select::from(TABLE)
+            .columns(&["reset_token_expires_at"])
+            .where_eq("id", user.id)
+            .fetch_optional::<ResetExpiry>(pool).await?
+            .and_then(|r| r.reset_token_expires_at);
+        match expires {
+            Some(exp) if exp > Utc::now() => Ok(user),
+            _ => Err(Error::BadRequest("Reset token is invalid or expired".into())),
+        }
+    }
+
+    pub async fn clear_reset_token(pool: &DbPool, id: i64) -> Result<()> {
+        Update::table(TABLE)
+            .set("reset_token_hash", Value::Null)
+            .set("reset_token_expires_at", Value::Null)
+            .set_timestamp("updated_at")
+            .where_eq("id", id)
+            .execute_no_return(pool).await
+    }
+}
+
+#[derive(FromRow)]
+struct ResetExpiry {
+    pub reset_token_expires_at: Option<DateTime<Utc>>,
 }
 "#;
 
@@ -283,11 +328,13 @@ fn write_auth_controller(base: &Path) -> Result<(), String> {
     let content = r#"use blixt::prelude::*;
 use blixt::auth::{self, cookie as auth_cookie, jwt};
 use blixt::validate::Validator;
+use uuid::Uuid;
 
 use crate::models::session::Session;
 use crate::models::user::User;
 
 const SESSION_TTL_SECS: u64 = 7 * 24 * 60 * 60; // 7 days
+const RESET_TOKEN_TTL_SECS: i64 = 30 * 60; // 30 minutes
 
 // --- Page templates ---
 
@@ -314,6 +361,12 @@ pub struct ForgotPasswordPage {
 pub struct ResetPasswordPage {
     pub csrf: String,
     pub token: String,
+}
+
+#[derive(Template)]
+#[template(path = "emails/reset_password.html")]
+pub struct ResetPasswordEmail {
+    pub reset_url: String,
 }
 
 // --- Form data ---
@@ -416,19 +469,37 @@ pub async fn forgot_password_page(csrf: CsrfToken) -> Result<impl IntoResponse> 
 }
 
 pub async fn forgot_password(
-    State(_ctx): State<AppContext>,
+    State(ctx): State<AppContext>,
     Form(form): Form<ForgotPasswordForm>,
 ) -> Result<impl IntoResponse> {
     let mut v = Validator::new();
     v.str_field(&form.email, "email").not_empty().pattern(blixt::validate::EMAIL_PATTERN, "must be a valid email");
     v.check()?;
 
-    // Always show success to prevent email enumeration
-    // TODO: Look up user, generate reset token, send email
-    // let token = generate_reset_token();
-    // let hash = sha256_hex(&token);
-    // Store hash + expiry on user record, email the raw token
-    info!(email = %form.email, "Password reset requested");
+    // always show same response to prevent email enumeration
+    if let Ok(user) = User::find_by_email(&ctx.db, &form.email).await {
+        let token = Uuid::new_v4().to_string();
+        let token_hash = auth::sha256_hex(&token);
+        let expires_at = chrono::Utc::now() + chrono::Duration::seconds(RESET_TOKEN_TTL_SECS);
+        User::set_reset_token(&ctx.db, user.id, &token_hash, expires_at).await?;
+
+        let host = std::env::var("APP_URL").unwrap_or_else(|_| {
+            format!("http://{}:{}", ctx.config.host, ctx.config.port)
+        });
+        let reset_url = format!("{host}/reset-password?token={token}");
+
+        match &ctx.mailer {
+            Some(mailer) => {
+                let email_tmpl = ResetPasswordEmail { reset_url: reset_url.clone() };
+                if let Err(e) = mailer.send_html(&user.email, "Reset your password", email_tmpl).await {
+                    error!(error = %e, "failed to send reset email");
+                }
+            }
+            None => {
+                info!(reset_url = %reset_url, "password reset link (no mailer configured)");
+            }
+        }
+    }
 
     Ok(Redirect::to("/login").with_flash(Flash::info(
         "If that email exists, we sent password reset instructions",
@@ -450,7 +521,7 @@ pub async fn reset_password_page(
 }
 
 pub async fn reset_password(
-    State(_ctx): State<AppContext>,
+    State(ctx): State<AppContext>,
     Form(form): Form<ResetPasswordForm>,
 ) -> Result<impl IntoResponse> {
     let mut v = Validator::new();
@@ -463,13 +534,14 @@ pub async fn reset_password(
         return Err(Error::BadRequest("Missing reset token".into()));
     }
 
-    // TODO: implement password reset token validation
-    // 1. Look up user by token hash: User::find_by_reset_token(&ctx.db, &form.token).await?
-    // 2. Update password: User::update_password(&ctx.db, user.id, &form.password).await?
-    // 3. Invalidate sessions: Session::delete_all_for_user(&ctx.db, user.id).await?
-    // 4. Clear the reset token on the user record
-    // Until implemented, reject all reset attempts:
-    Err(Error::BadRequest("Password reset is not yet configured. Please contact support.".into()))
+    let user = User::find_by_reset_token(&ctx.db, &form.token).await
+        .map_err(|_| Error::BadRequest("Reset token is invalid or expired".into()))?;
+    User::update_password(&ctx.db, user.id, &form.password).await?;
+    User::clear_reset_token(&ctx.db, user.id).await?;
+    Session::delete_all_for_user(&ctx.db, user.id).await?;
+    info!(user_id = user.id, "password_reset");
+
+    Ok(Redirect::to("/login").with_flash(Flash::success("Password updated. Please sign in.")))
 }
 
 // --- Session helpers ---
@@ -709,6 +781,20 @@ fn reset_password_template() -> &'static str {
 "##
 }
 
+fn reset_email_template() -> &'static str {
+    r##"<h2 style="color: #e4e4e7; font-size: 18px; margin-bottom: 16px;">Reset your password</h2>
+<p style="color: #a1a1aa; font-size: 14px; line-height: 1.6; margin-bottom: 16px;">
+  Someone requested a password reset for your account. Click the link below to set a new password:
+</p>
+<p style="margin-bottom: 16px;">
+  <a href="{{ reset_url }}" style="color: #fbbf24; text-decoration: underline;">Reset password</a>
+</p>
+<p style="color: #71717a; font-size: 12px;">
+  This link expires in 30 minutes. If you didn't request this, you can safely ignore this email.
+</p>
+"##
+}
+
 // --- Output hints ---
 
 fn print_route_hints() {
@@ -726,10 +812,10 @@ fn print_route_hints() {
     println!("    .route(\"/reset-password\", get(controllers::auth::reset_password_page))");
     println!("    .route(\"/reset-password\", post(controllers::auth::reset_password))");
     println!(
-        "\n  {} forgot-password and reset-password are stubs.",
+        "\n  {} Set SMTP env vars to enable password reset emails.",
         style("note:").yellow().bold()
     );
-    println!("  Implement token generation and email sending before deploying.");
+    println!("  Without SMTP, reset links are logged to stdout (dev mode).");
 }
 
 /// Patches a freshly-scaffolded project to wire in auth routes and models.
@@ -752,6 +838,31 @@ pub fn patch_new_project(project: &Path) -> Result<(), String> {
     let patched = content
         .replace("mod controllers;", "mod controllers;\nmod models;")
         .replace(
+            "use blixt::prelude::*;",
+            "use blixt::prelude::*;\nuse blixt::middleware::rate_limit::{RateLimiter, rate_limit_middleware};",
+        )
+        .replace(
+            "    let config = Config::from_env()?;\n\
+    let app = App::new(config)\n\
+        .router(routes())\n\
+        .static_dir(\"static\");\n\
+\n\
+    app.serve().await",
+            "    let config = Config::from_env()?;\n\
+    let pool = blixt::db::create_pool(&config).await?;\n\
+    blixt::db::migrate(&pool).await?;\n\
+\n\
+    let mailer = MailerConfig::from_env().ok().and_then(|c| Mailer::new(c).ok());\n\
+    let ctx = AppContext::new(pool, config).with_mailer_opt(mailer);\n\
+\n\
+    let app = App::new(ctx.config.as_ref().clone())\n\
+        .db(ctx.db.clone())\n\
+        .router(routes().with_state(ctx))\n\
+        .static_dir(\"static\");\n\
+\n\
+    app.serve().await",
+        )
+        .replace(
             "        .route(\"/fragments/status\", get(controllers::api::status_fragment))",
             "        .route(\"/fragments/status\", get(controllers::api::status_fragment))\n\
         // Auth\n\
@@ -767,6 +878,35 @@ pub fn patch_new_project(project: &Path) -> Result<(), String> {
         );
 
     fs::write(&main_rs, patched).map_err(|e| format!("Failed to patch main.rs: {e}"))?;
+
+    let cargo_toml = project.join("Cargo.toml");
+    if cargo_toml.exists() {
+        let mut cargo = fs::read_to_string(&cargo_toml)
+            .map_err(|e| format!("Failed to read Cargo.toml: {e}"))?;
+        if !cargo.contains("uuid") {
+            cargo.push_str("uuid = { version = \"1\", features = [\"v4\"] }\n");
+            fs::write(&cargo_toml, cargo)
+                .map_err(|e| format!("Failed to write Cargo.toml: {e}"))?;
+        }
+    }
+
+    let env_example = project.join(".env.example");
+    if env_example.exists() {
+        let mut env = fs::read_to_string(&env_example)
+            .map_err(|e| format!("Failed to read .env.example: {e}"))?;
+        env.push_str(
+            "\n# SMTP (optional — reset links logged to stdout without these)\n\
+             # SMTP_HOST=smtp.example.com\n\
+             # SMTP_PORT=587\n\
+             # SMTP_USER=\n\
+             # SMTP_PASSWORD=\n\
+             # FROM_NAME=MyApp\n\
+             # FROM_EMAIL=noreply@example.com\n\
+             # APP_URL=http://localhost:3000\n",
+        );
+        fs::write(&env_example, env).map_err(|e| format!("Failed to write .env.example: {e}"))?;
+    }
+
     Ok(())
 }
 

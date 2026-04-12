@@ -79,7 +79,7 @@ The `Environment` enum has three variants:
 Check the environment at runtime:
 
 ```rust
-if config.blixt_env == Environment::Production {
+if config.is_production() {
     // production-specific behavior
 }
 ```
@@ -146,7 +146,6 @@ use blixt::prelude::*;
 async fn main() -> Result<()> {
     init_tracing()?;
     let config = Config::from_env()?;
-    let addr = format!("{}:{}", config.host, config.port);
 
     App::new(config)
         .router(routes())
@@ -155,3 +154,19 @@ async fn main() -> Result<()> {
         .await
 }
 ```
+
+### AppContext with mailer
+
+When using authentication with email support, create an `AppContext` with an
+optional mailer:
+
+```rust
+let config = Config::from_env()?;
+let pool = blixt::db::create_pool(&config).await?;
+let mailer = MailerConfig::from_env().ok().and_then(|c| Mailer::new(c).ok());
+let ctx = AppContext::new(pool, config).with_mailer_opt(mailer);
+```
+
+`with_mailer_opt` accepts `Option<Mailer>` -- when SMTP variables are not set,
+`MailerConfig::from_env()` returns `Err` and the mailer is `None`. Password
+reset links are logged to stdout instead of emailed.
