@@ -103,7 +103,7 @@ pub mod prelude {
     pub use crate::error::{Error, Result};
     pub use crate::flash::{Flash, Redirect};
     pub use crate::form::{CsrfToken, Form};
-    pub use crate::jobs::{Job, JobRunner, job_fn};
+    pub use crate::jobs::{Queue, Worker};
     pub use crate::logging::init_tracing;
     pub use crate::mailer::{Mailer, MailerConfig};
     pub use crate::paginate::{Paginated, PaginationParams};
