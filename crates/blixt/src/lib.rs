@@ -86,6 +86,7 @@ macro_rules! render {
 /// Common re-exports for Blixt applications.
 pub mod prelude {
     pub use crate::app::App;
+    pub use crate::auth::cookie as auth_cookie;
     pub use crate::auth::{AuthUser, Claims, OptionalAuth};
     pub use crate::config::{Config, Environment};
     pub use crate::context::AppContext;
