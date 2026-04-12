@@ -59,6 +59,8 @@ pub mod middleware;
 pub mod paginate;
 /// Secret-safe wrapper that redacts values in logs.
 pub mod redact;
+/// File storage with local filesystem and optional S3 backends.
+pub mod storage;
 /// Input validation.
 pub mod validate;
 
@@ -106,6 +108,7 @@ pub mod prelude {
     pub use crate::mailer::{Mailer, MailerConfig};
     pub use crate::paginate::{Paginated, PaginationParams};
     pub use crate::redact::Redact;
+    pub use crate::storage::Storage;
     pub use crate::validate::Validator;
     pub use askama::Template;
     pub use axum::{
