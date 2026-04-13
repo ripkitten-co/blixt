@@ -9,6 +9,26 @@ use opendal::Operator;
 
 use crate::error::{Error, Result};
 
+/// Metadata returned after a successful write operation.
+///
+/// Wraps the storage backend's response so callers can access etag,
+/// content length, or other details without a separate `stat()` call.
+pub struct WriteResult {
+    meta: opendal::Metadata,
+}
+
+impl WriteResult {
+    /// Entity tag for cache validation (e.g. S3 ETag).
+    pub fn etag(&self) -> Option<&str> {
+        self.meta.etag()
+    }
+
+    /// Size of the written content in bytes.
+    pub fn content_length(&self) -> u64 {
+        self.meta.content_length()
+    }
+}
+
 /// File storage backed by opendal.
 ///
 /// Provides bytes and streaming APIs for file operations, plus presigned
@@ -68,10 +88,11 @@ impl Storage {
     // --- Bytes API ---
 
     /// Stores file contents at the given path.
-    pub async fn put(&self, path: &str, data: Vec<u8>) -> Result<()> {
+    pub async fn put(&self, path: &str, data: Vec<u8>) -> Result<WriteResult> {
         self.op
             .write(path, data)
             .await
+            .map(|meta| WriteResult { meta })
             .map_err(|e| map_opendal_error("put", e))
     }
 
@@ -103,7 +124,7 @@ impl Storage {
     // --- Streaming API ---
 
     /// Writes a file from chunks. Suitable for large files.
-    pub async fn put_stream(&self, path: &str, chunks: &[bytes::Bytes]) -> Result<()> {
+    pub async fn put_stream(&self, path: &str, chunks: &[bytes::Bytes]) -> Result<WriteResult> {
         let mut writer = self
             .op
             .writer(path)
@@ -120,8 +141,8 @@ impl Storage {
         writer
             .close()
             .await
-            .map_err(|e| map_opendal_error("put_stream close", e))?;
-        Ok(())
+            .map(|meta| WriteResult { meta })
+            .map_err(|e| map_opendal_error("put_stream close", e))
     }
 
     /// Reads a file as a byte vector via the streaming reader. Suitable for

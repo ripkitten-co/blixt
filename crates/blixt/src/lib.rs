@@ -113,7 +113,7 @@ pub mod prelude {
     pub use crate::mailer::{Mailer, MailerConfig};
     pub use crate::paginate::{Paginated, PaginationParams};
     pub use crate::redact::Redact;
-    pub use crate::storage::Storage;
+    pub use crate::storage::{Storage, WriteResult};
     pub use crate::upload::{MultipartForm, UploadedFile};
     pub use crate::validate::Validator;
     pub use askama::Template;
