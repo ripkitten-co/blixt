@@ -69,7 +69,8 @@ impl UploadedFile {
 
     /// Save directly to storage without validation.
     pub async fn save(self, storage: &Storage, path: &str) -> Result<()> {
-        storage.put(path, self.data).await
+        storage.put(path, self.data).await?;
+        Ok(())
     }
 }
 
@@ -108,7 +109,8 @@ impl FileValidator {
         if let Some(msg) = self.error {
             return Err(Error::BadRequest(msg));
         }
-        storage.put(path, self.file.data).await
+        storage.put(path, self.file.data).await?;
+        Ok(())
     }
 
     /// Validate without saving. Returns the file on success.
