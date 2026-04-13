@@ -66,6 +66,9 @@ async-trait = "0.1"
 opendal = "0.51"
 bytes = "1"
 
+# Test data generation
+fake = { version = "3", features = ["derive"] }
+
 # Filesystem
 dirs = "6"
 
