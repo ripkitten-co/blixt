@@ -42,6 +42,7 @@ moka.workspace = true
 deadpool-redis = { workspace = true, optional = true }
 opendal = { workspace = true, features = ["services-fs"] }
 bytes.workspace = true
+fake = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = "3"
@@ -52,6 +53,7 @@ postgres = ["sqlx/postgres"]
 sqlite = ["sqlx/sqlite"]
 redis = ["deadpool-redis"]
 s3 = ["opendal/services-s3"]
+test-helpers = ["fake"]
 
 [package.metadata.docs.rs]
 all-features = true

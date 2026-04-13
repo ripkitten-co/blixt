@@ -66,6 +66,9 @@ pub mod upload;
 /// Input validation.
 pub mod validate;
 
+#[cfg(feature = "test-helpers")]
+pub mod testing;
+
 #[cfg(test)]
 pub(crate) mod test_helpers;
 
