@@ -1,128 +1,111 @@
 +++
 title = "Background Jobs"
 weight = 12
-description = "Running async background work with bounded concurrency using JobRunner."
+description = "Persistent job queue with retry, exponential backoff, and Postgres LISTEN/NOTIFY."
 +++
 
 # Background Jobs
 
-Blixt includes a lightweight background job system built on Tokio. The `JobRunner` processes jobs via an internal bounded channel with configurable concurrency. Job failures are logged but never crash the runner.
+Blixt includes a persistent job queue backed by your database. Jobs survive
+process restarts, retry automatically with exponential backoff, and on Postgres
+get picked up near-instantly via `LISTEN`/`NOTIFY`.
 
-## JobRunner
+## Enqueuing jobs
 
-Create a runner with a concurrency limit:
-
-```rust
-use blixt::prelude::*;
-
-// Run up to 4 jobs in parallel (the default)
-let runner = JobRunner::default_runner();
-
-// Or specify a custom concurrency limit
-let runner = JobRunner::new(8);
-```
-
-The runner spawns a background Tokio task that pulls jobs from a bounded channel (capacity 100) and executes them using a semaphore to enforce the concurrency limit.
-
-## The Job trait
-
-Any type implementing the `Job` trait can be submitted to the runner:
+Use `Queue::enqueue()` to add a job from any handler:
 
 ```rust
 use blixt::prelude::*;
-use std::pin::Pin;
-use std::future::Future;
+use serde_json::json;
 
-struct SendWelcomeEmail {
-    user_id: i64,
-    email: String,
-}
-
-impl Job for SendWelcomeEmail {
-    fn name(&self) -> &str {
-        "send_welcome_email"
-    }
-
-    fn run(&self) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
-        Box::pin(async {
-            // send the email...
-            info!(user_id = self.user_id, "Welcome email sent");
-            Ok(())
-        })
-    }
-}
-```
-
-The `name()` method is used for structured logging. When a job starts, completes, or fails, Blixt logs the job name automatically.
-
-## job_fn helper
-
-For one-off jobs that don't need a dedicated struct, use `job_fn`:
-
-```rust
-use blixt::prelude::*;
-
-let job = job_fn("cleanup_expired_sessions", || async {
-    // ... cleanup logic ...
-    Ok(())
-});
-
-runner.submit(job).await?;
-```
-
-`job_fn` takes a name and an async closure, returning an anonymous type that implements `Job`.
-
-## Submitting jobs
-
-Use `JobRunner::submit()` to enqueue a job. This is an async call that waits for channel capacity if the internal buffer (100 items) is full.
-
-```rust
-runner.submit(SendWelcomeEmail {
-    user_id: 42,
-    email: "user@example.com".into(),
-}).await?;
-```
-
-If the runner's channel has been closed (e.g. the runner task was dropped), `submit` returns `Error::Internal("Job channel closed")`.
-
-## Sharing the runner
-
-Store the `JobRunner` in your application context so handlers can submit jobs:
-
-```rust
-use std::sync::Arc;
-
-struct AppState {
-    db: DbPool,
-    jobs: Arc<JobRunner>,
-}
-
-pub async fn register_user(
-    State(state): State<Arc<AppState>>,
+async fn register_user(
+    State(ctx): State<AppContext>,
     Form(input): Form<RegisterInput>,
 ) -> Result<impl IntoResponse> {
-    let user = create_user(&state.db, &input).await?;
+    let user = create_user(&ctx.db, &input).await?;
 
-    let email = input.email.clone();
-    state.jobs.submit(job_fn("welcome_email", move || {
-        let email = email.clone();
-        async move {
-            // send welcome email to `email`
-            Ok(())
-        }
-    })).await?;
+    Queue::enqueue(&ctx.db, "send_welcome_email", json!({
+        "user_id": user.id,
+        "email": input.email,
+    }))
+    .run()
+    .await?;
 
-    Ok(Html("registered"))
+    Ok(Redirect::to("/"))
 }
 ```
 
-## Error handling
+### Options
 
-Job failures are logged at `error` level with the job name and error message, but they do not propagate to callers or crash the runner. The runner continues processing the next job in the queue.
+```rust
+Queue::enqueue(&pool, "send_report", json!({"id": 42}))
+    .queue("reports")           // queue name (default: "default")
+    .max_attempts(10)           // retry limit (default: 5)
+    .delay(Duration::from_secs(60))  // delay execution
+    .run()
+    .await?;
+```
+
+## Processing jobs
+
+Create a `Worker`, register handlers, and run it:
+
+```rust
+use blixt::prelude::*;
+use serde_json::Value;
+
+let worker = Worker::new(job_pool)
+    .queue("default")
+    .concurrency(4)
+    .register("send_welcome_email", |payload: Value| async move {
+        let email = payload["email"].as_str().unwrap_or_default();
+        // send the email...
+        info!(email = %email, "welcome email sent");
+        Ok(())
+    })
+    .register("send_report", |payload: Value| async move {
+        // generate and send report...
+        Ok(())
+    });
+
+// run blocks forever — spawn it in the background
+tokio::spawn(worker.run());
+```
+
+The worker uses a separate database pool to avoid starving your app's connections:
+
+```rust
+let app_pool = db::create_pool(&config).await?;
+let job_pool = db::create_pool(&config).await?;
+
+tokio::spawn(Worker::new(job_pool).register(...).run());
+App::new(config).db(app_pool).router(routes()).serve().await
+```
+
+## How it works
+
+1. `Queue::enqueue()` inserts a row into the `_blixt_jobs` table
+2. On Postgres, fires `NOTIFY _blixt_jobs` for immediate pickup
+3. The worker polls for pending jobs (5 second interval, or instantly on Postgres via `LISTEN`)
+4. Locks jobs with `FOR UPDATE SKIP LOCKED` (Postgres) to prevent double-processing
+5. Executes the registered handler with the JSON payload
+
+## Retries and failure
+
+Failed jobs retry with exponential backoff: 30s, 1m, 2m, 4m, 8m, etc.
+
+After `max_attempts` failures, the job is marked `dead` with the last error
+message saved. Dead jobs stay in the table for inspection.
+
+Job states: `pending` → `running` → `completed` or `dead`.
+
+## The jobs table
+
+The `_blixt_jobs` table is created automatically when the worker starts.
+You don't need to add a migration.
 
 ```
-INFO  job="send_welcome_email" Job started
-ERROR job="send_welcome_email" error="SMTP send error: ..." Job failed
-INFO  job="cleanup_sessions" Job started
-INFO  job="cleanup_sessions" Job completed
+id | queue | job_type | payload | status | attempts | max_attempts | last_error | scheduled_at
 ```
+
+Unknown job types (no registered handler) are logged and marked `dead`.
