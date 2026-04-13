@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use axum::Router;
 use axum::http::{Request, StatusCode};
 use axum::middleware;
@@ -9,6 +11,7 @@ use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
+use crate::auth::extractor::JwtSecret;
 use crate::config::Config;
 use crate::db::DbPool;
 use crate::error::Result;
@@ -66,12 +69,21 @@ impl App {
         let health_routes = axum::Router::new()
             .route("/_ping", axum::routing::get(crate::health::ping))
             .route("/_health", axum::routing::get(crate::health::check))
-            .with_state(self.db);
+            .with_state(self.db.clone());
+
+        let auth_ctx = AuthExtensions {
+            jwt_secret: self.config.jwt_secret().map(|s| s.to_owned()),
+            db: self.db.clone(),
+        };
 
         router
             .merge(health_routes)
             .layer(CompressionLayer::new())
             .layer(middleware::from_fn(security_headers))
+            .layer(middleware::from_fn_with_state(
+                auth_ctx,
+                inject_auth_extensions,
+            ))
             .layer(middleware::from_fn(request_id))
             .layer(TraceLayer::new_for_http())
     }
@@ -82,9 +94,37 @@ impl App {
         let router = self.build_router();
         let listener = TcpListener::bind(&addr).await?;
         info!("Blixt server running on http://{addr}");
-        axum::serve(listener, router).await?;
+        axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await?;
         Ok(())
     }
+}
+
+/// State passed to the auth extensions middleware.
+#[derive(Clone)]
+struct AuthExtensions {
+    jwt_secret: Option<String>,
+    db: Option<DbPool>,
+}
+
+/// Injects [`JwtSecret`] and [`DbPool`] into request extensions so the
+/// [`AuthUser`](crate::auth::AuthUser) extractor can validate tokens and
+/// check session liveness against the database.
+async fn inject_auth_extensions(
+    axum::extract::State(ctx): axum::extract::State<AuthExtensions>,
+    mut request: Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> Response {
+    if let Some(secret) = &ctx.jwt_secret {
+        request.extensions_mut().insert(JwtSecret(secret.clone()));
+    }
+    if let Some(pool) = &ctx.db {
+        request.extensions_mut().insert(pool.clone());
+    }
+    next.run(request).await
 }
 
 /// Attaches static file serving if a directory was configured.

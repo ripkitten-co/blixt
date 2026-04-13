@@ -49,6 +49,31 @@ These are loaded separately by `MailerConfig::from_env()` and are only required 
 | `FROM_NAME` | Display name for the From header | `My App` |
 | `FROM_EMAIL` | Email address for the From header | `noreply@example.com` |
 
+### Cache variables
+
+Loaded by `cache::from_env()`. In-memory caching works with no configuration.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CACHE_BACKEND` | `memory` | `memory` or `redis` |
+| `CACHE_MAX_ENTRIES` | `10000` | Max entries for in-memory backend |
+| `REDIS_URL` | *(required for redis)* | Redis connection string |
+| `REDIS_POOL_SIZE` | `8` | Redis connection pool size |
+
+### Storage variables
+
+Loaded by `storage::from_env()`. Local filesystem works with no configuration.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `STORAGE_BACKEND` | `local` | `local` or `s3` |
+| `STORAGE_LOCAL_DIR` | `./uploads` | Directory for local backend |
+| `S3_BUCKET` | *(required for s3)* | S3 bucket name |
+| `S3_REGION` | `us-east-1` | AWS region |
+| `S3_ENDPOINT` | *(none)* | Custom endpoint (MinIO, R2) |
+| `S3_ACCESS_KEY` | *(required for s3)* | AWS access key ID |
+| `S3_SECRET_KEY` | *(required for s3)* | AWS secret access key |
+
 ## .env file
 
 For local development, place a `.env` file in your project root:
@@ -79,7 +104,7 @@ The `Environment` enum has three variants:
 Check the environment at runtime:
 
 ```rust
-if config.blixt_env == Environment::Production {
+if config.is_production() {
     // production-specific behavior
 }
 ```
@@ -146,7 +171,6 @@ use blixt::prelude::*;
 async fn main() -> Result<()> {
     init_tracing()?;
     let config = Config::from_env()?;
-    let addr = format!("{}:{}", config.host, config.port);
 
     App::new(config)
         .router(routes())
@@ -155,3 +179,19 @@ async fn main() -> Result<()> {
         .await
 }
 ```
+
+### AppContext with mailer
+
+When using authentication with email support, create an `AppContext` with an
+optional mailer:
+
+```rust
+let config = Config::from_env()?;
+let pool = blixt::db::create_pool(&config).await?;
+let mailer = MailerConfig::from_env().ok().and_then(|c| Mailer::new(c).ok());
+let ctx = AppContext::new(pool, config).with_mailer_opt(mailer);
+```
+
+`with_mailer_opt` accepts `Option<Mailer>` -- when SMTP variables are not set,
+`MailerConfig::from_env()` returns `Err` and the mailer is `None`. Password
+reset links are logged to stdout instead of emailed.

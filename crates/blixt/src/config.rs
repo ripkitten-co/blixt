@@ -99,6 +99,11 @@ impl Config {
     pub fn jwt_secret(&self) -> Option<&str> {
         self.jwt_secret.as_ref().map(|s| s.expose_secret())
     }
+
+    /// Returns true when running in production mode.
+    pub fn is_production(&self) -> bool {
+        self.blixt_env == Environment::Production
+    }
 }
 
 fn default_host() -> String {
@@ -270,5 +275,20 @@ mod tests {
         with_env_vars(&[("BLIXT_ENV", Some("unknown"))], || {
             assert_eq!(Environment::from_env_var(), Environment::Development);
         });
+    }
+
+    #[test]
+    fn is_production_returns_true_only_for_production() {
+        let make_config = |env| Config {
+            host: "127.0.0.1".to_string(),
+            port: 3000,
+            blixt_env: env,
+            database_url: None,
+            jwt_secret: None,
+        };
+
+        assert!(make_config(Environment::Production).is_production());
+        assert!(!make_config(Environment::Development).is_production());
+        assert!(!make_config(Environment::Test).is_production());
     }
 }

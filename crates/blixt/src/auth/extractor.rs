@@ -3,10 +3,19 @@
 /// [`AuthUser`] rejects unauthenticated requests with 401. [`OptionalAuth`]
 /// allows unauthenticated access but still decodes the token when present.
 ///
-/// The JWT secret is read from [`JwtSecret`] in request extensions. The
-/// framework's middleware layer inserts this automatically from [`AppContext`].
+/// Tokens are read from the `blixt_auth` HttpOnly cookie first, falling back
+/// to the `Authorization: Bearer` header. This supports both browser sessions
+/// (cookie) and API clients (header).
+///
+/// When a [`DbPool`](crate::db::DbPool) is present in request extensions,
+/// the extractor also verifies that a matching, non-expired session exists
+/// in the `sessions` table. This enables immediate session revocation via
+/// logout. Without a pool, only JWT signature and expiry are checked.
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
+
+use super::cookie::AUTH_COOKIE_NAME;
+use crate::db::DbPool;
 
 /// Wrapper for the JWT signing secret, stored in request extensions.
 ///
@@ -15,10 +24,11 @@ use axum::http::request::Parts;
 #[derive(Clone)]
 pub struct JwtSecret(pub String);
 
-/// An authenticated user, extracted from a valid `Authorization: Bearer` header.
+/// An authenticated user, extracted from a valid JWT.
 ///
-/// Using this extractor on a handler makes the route require authentication;
-/// requests without a valid token receive a 401 response.
+/// Checks the `blixt_auth` cookie first, then the `Authorization: Bearer`
+/// header. Using this extractor on a handler makes the route require
+/// authentication; requests without a valid token receive a 401 response.
 #[derive(Debug, Clone)]
 pub struct AuthUser {
     /// The user ID from the JWT `sub` claim.
@@ -34,6 +44,31 @@ pub struct AuthUser {
 /// but are also accessible anonymously.
 #[derive(Debug, Clone)]
 pub struct OptionalAuth(pub Option<AuthUser>);
+
+/// Extracts a JWT from the auth cookie or Bearer header (cookie takes priority).
+fn extract_token(parts: &Parts) -> Option<String> {
+    if let Some(token) = extract_cookie_token(parts) {
+        return Some(token);
+    }
+    extract_bearer_token(parts).map(String::from)
+}
+
+/// Reads the JWT from the `blixt_auth` HttpOnly cookie.
+fn extract_cookie_token(parts: &Parts) -> Option<String> {
+    let cookie_header = parts
+        .headers
+        .get(axum::http::header::COOKIE)?
+        .to_str()
+        .ok()?;
+    cookie_header.split(';').map(str::trim).find_map(|pair| {
+        let (name, value) = pair.split_once('=')?;
+        if name.trim() == AUTH_COOKIE_NAME {
+            Some(value.trim().to_owned())
+        } else {
+            None
+        }
+    })
+}
 
 /// Extracts the Bearer token from the `Authorization` header.
 fn extract_bearer_token(parts: &Parts) -> Option<&str> {
@@ -56,6 +91,35 @@ fn jwt_secret_from_extensions(parts: &Parts) -> crate::error::Result<String> {
         ))
 }
 
+/// Checks whether an active session exists for the given token.
+///
+/// When a `DbPool` is available in extensions, queries the `sessions` table
+/// for a row matching the token hash that hasn't expired. Returns `true` if
+/// the session is valid, or if no pool is available (stateless fallback).
+async fn session_is_valid(parts: &Parts, token: &str) -> bool {
+    let Some(pool) = parts.extensions.get::<DbPool>() else {
+        return true;
+    };
+
+    let token_hash = super::sha256_hex(token);
+
+    #[derive(sqlx::FromRow)]
+    struct SessionCheck {
+        expires_at: sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>,
+    }
+
+    let result = crate::db::builder::Select::from("sessions")
+        .columns(&["expires_at"])
+        .where_eq("token_hash", &*token_hash)
+        .fetch_optional::<SessionCheck>(pool)
+        .await;
+
+    match result {
+        Ok(Some(session)) => session.expires_at > sqlx::types::chrono::Utc::now(),
+        _ => false,
+    }
+}
+
 impl<S> FromRequestParts<S> for AuthUser
 where
     S: Send + Sync,
@@ -63,9 +127,13 @@ where
     type Rejection = crate::error::Error;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        let token = extract_bearer_token(parts).ok_or(crate::error::Error::Unauthorized)?;
+        let token = extract_token(parts).ok_or(crate::error::Error::Unauthorized)?;
         let secret = jwt_secret_from_extensions(parts)?;
-        let claims = super::jwt::validate_token(token, &secret)?;
+        let claims = super::jwt::validate_token(&token, &secret)?;
+
+        if !session_is_valid(parts, &token).await {
+            return Err(crate::error::Error::Unauthorized);
+        }
 
         Ok(Self {
             user_id: claims.sub,
@@ -81,7 +149,7 @@ where
     type Rejection = crate::error::Error;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        let Some(token) = extract_bearer_token(parts) else {
+        let Some(token) = extract_token(parts) else {
             return Ok(Self(None));
         };
 
@@ -90,11 +158,16 @@ where
             Err(_) => return Ok(Self(None)),
         };
 
-        match super::jwt::validate_token(token, &secret) {
-            Ok(claims) => Ok(Self(Some(AuthUser {
-                user_id: claims.sub,
-                role: claims.role,
-            }))),
+        match super::jwt::validate_token(&token, &secret) {
+            Ok(claims) => {
+                if !session_is_valid(parts, &token).await {
+                    return Ok(Self(None));
+                }
+                Ok(Self(Some(AuthUser {
+                    user_id: claims.sub,
+                    role: claims.role,
+                })))
+            }
             Err(_) => Ok(Self(None)),
         }
     }
@@ -107,7 +180,7 @@ mod tests {
 
     const SECRET: &str = "test-secret-that-is-at-least-32-bytes-long!";
 
-    fn build_request(token: Option<&str>) -> Request<()> {
+    fn build_request_with_bearer(token: Option<&str>) -> Request<()> {
         let mut builder = Request::builder().uri("/test");
         if let Some(token) = token {
             builder = builder.header(header::AUTHORIZATION, format!("Bearer {token}"));
@@ -119,9 +192,21 @@ mod tests {
         request
     }
 
+    fn build_request_with_cookie(token: Option<&str>) -> Request<()> {
+        let mut builder = Request::builder().uri("/test");
+        if let Some(token) = token {
+            builder = builder.header(header::COOKIE, format!("{AUTH_COOKIE_NAME}={token}"));
+        }
+        let mut request = builder.body(()).expect("build request");
+        request
+            .extensions_mut()
+            .insert(JwtSecret(SECRET.to_string()));
+        request
+    }
+
     #[tokio::test]
-    async fn missing_header_returns_401() {
-        let request = build_request(None);
+    async fn missing_token_returns_401() {
+        let request = build_request_with_bearer(None);
         let (mut parts, _body) = request.into_parts();
 
         let result = AuthUser::from_request_parts(&mut parts, &()).await;
@@ -129,10 +214,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn valid_token_extracts_user() {
+    async fn valid_bearer_token_extracts_user() {
         let token = super::super::jwt::create_token("user-99", Some("editor"), SECRET, 3600)
             .expect("create token");
-        let request = build_request(Some(&token));
+        let request = build_request_with_bearer(Some(&token));
         let (mut parts, _body) = request.into_parts();
 
         let user = AuthUser::from_request_parts(&mut parts, &())
@@ -143,12 +228,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn valid_cookie_token_extracts_user() {
+        let token = super::super::jwt::create_token("user-55", Some("admin"), SECRET, 3600)
+            .expect("create token");
+        let request = build_request_with_cookie(Some(&token));
+        let (mut parts, _body) = request.into_parts();
+
+        let user = AuthUser::from_request_parts(&mut parts, &())
+            .await
+            .expect("extract user");
+        assert_eq!(user.user_id, "user-55");
+        assert_eq!(user.role.as_deref(), Some("admin"));
+    }
+
+    #[tokio::test]
+    async fn cookie_takes_priority_over_bearer() {
+        let cookie_token = super::super::jwt::create_token("cookie-user", None, SECRET, 3600)
+            .expect("create token");
+        let bearer_token = super::super::jwt::create_token("bearer-user", None, SECRET, 3600)
+            .expect("create token");
+        let mut request = Request::builder()
+            .uri("/test")
+            .header(header::COOKIE, format!("{AUTH_COOKIE_NAME}={cookie_token}"))
+            .header(header::AUTHORIZATION, format!("Bearer {bearer_token}"))
+            .body(())
+            .expect("build request");
+        request
+            .extensions_mut()
+            .insert(JwtSecret(SECRET.to_string()));
+        let (mut parts, _body) = request.into_parts();
+
+        let user = AuthUser::from_request_parts(&mut parts, &())
+            .await
+            .expect("extract user");
+        assert_eq!(user.user_id, "cookie-user");
+    }
+
+    #[tokio::test]
     async fn expired_token_returns_401() {
         let token =
             super::super::jwt::create_token("user-99", None, SECRET, 0).expect("create token");
         std::thread::sleep(std::time::Duration::from_secs(1));
 
-        let request = build_request(Some(&token));
+        let request = build_request_with_bearer(Some(&token));
         let (mut parts, _body) = request.into_parts();
 
         let result = AuthUser::from_request_parts(&mut parts, &()).await;
@@ -156,13 +278,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn optional_auth_without_header_returns_none() {
-        let request = build_request(None);
+    async fn optional_auth_without_token_returns_none() {
+        let request = build_request_with_bearer(None);
         let (mut parts, _body) = request.into_parts();
 
         let opt = OptionalAuth::from_request_parts(&mut parts, &())
             .await
             .expect("optional auth");
         assert!(opt.0.is_none());
+    }
+
+    #[tokio::test]
+    async fn optional_auth_reads_cookie() {
+        let token =
+            super::super::jwt::create_token("user-77", None, SECRET, 3600).expect("create token");
+        let request = build_request_with_cookie(Some(&token));
+        let (mut parts, _body) = request.into_parts();
+
+        let opt = OptionalAuth::from_request_parts(&mut parts, &())
+            .await
+            .expect("optional auth");
+        assert!(opt.0.is_some());
+        assert_eq!(opt.0.unwrap().user_id, "user-77");
     }
 }

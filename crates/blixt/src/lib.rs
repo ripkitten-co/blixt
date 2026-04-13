@@ -29,6 +29,8 @@ compile_error!("Enable at least one database backend feature: `postgres` or `sql
 pub mod app;
 /// Authentication: JWT, password hashing, extractors.
 pub mod auth;
+/// Caching with in-memory and optional Redis backends.
+pub mod cache;
 /// Environment-aware configuration.
 pub mod config;
 /// Shared application state.
@@ -57,6 +59,10 @@ pub mod middleware;
 pub mod paginate;
 /// Secret-safe wrapper that redacts values in logs.
 pub mod redact;
+/// File storage with local filesystem and optional S3 backends.
+pub mod storage;
+/// Multipart file upload handling with validation.
+pub mod upload;
 /// Input validation.
 pub mod validate;
 
@@ -86,7 +92,9 @@ macro_rules! render {
 /// Common re-exports for Blixt applications.
 pub mod prelude {
     pub use crate::app::App;
+    pub use crate::auth::cookie as auth_cookie;
     pub use crate::auth::{AuthUser, Claims, OptionalAuth};
+    pub use crate::cache::Cache;
     pub use crate::config::{Config, Environment};
     pub use crate::context::AppContext;
     pub use crate::datastar::{
@@ -97,11 +105,13 @@ pub mod prelude {
     pub use crate::error::{Error, Result};
     pub use crate::flash::{Flash, Redirect};
     pub use crate::form::{CsrfToken, Form};
-    pub use crate::jobs::{Job, JobRunner, job_fn};
+    pub use crate::jobs::{Queue, Worker};
     pub use crate::logging::init_tracing;
     pub use crate::mailer::{Mailer, MailerConfig};
     pub use crate::paginate::{Paginated, PaginationParams};
     pub use crate::redact::Redact;
+    pub use crate::storage::Storage;
+    pub use crate::upload::{MultipartForm, UploadedFile};
     pub use crate::validate::Validator;
     pub use askama::Template;
     pub use axum::{
