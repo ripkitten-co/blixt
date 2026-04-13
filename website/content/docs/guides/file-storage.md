@@ -32,16 +32,37 @@ async fn download(State(ctx): State<AppContext>) -> Result<impl IntoResponse> {
 ## API
 
 ```rust
-ctx.storage.put(path, bytes).await?       // store file
+ctx.storage.put(path, bytes).await?       // store file, returns WriteResult
 ctx.storage.get(path).await?              // retrieve bytes
 ctx.storage.delete(path).await?           // remove file
 ctx.storage.exists(path).await?           // check existence
-ctx.storage.put_stream(path, chunks).await? // write from chunks
+ctx.storage.put_stream(path, chunks).await? // write from chunks, returns WriteResult
 ctx.storage.reader(path).await?           // streaming reader
 ctx.storage.presigned_url(path, ttl).await? // signed URL (S3 only)
 ```
 
 Nested paths are created automatically: `"avatars/user-42/photo.jpg"`.
+
+### WriteResult
+
+`put()` and `put_stream()` return a `WriteResult` with metadata from the
+storage backend:
+
+```rust
+let result = ctx.storage.put("uploads/photo.jpg", data).await?;
+
+if let Some(etag) = result.etag() {
+    // use for cache headers (ETag)
+}
+
+let size = result.content_length(); // bytes written
+```
+
+If you don't need the metadata, the result is silently dropped:
+
+```rust
+ctx.storage.put("uploads/photo.jpg", data).await?; // WriteResult ignored
+```
 
 ## Backends
 

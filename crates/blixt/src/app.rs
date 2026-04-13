@@ -24,6 +24,7 @@ pub struct App {
     router: Router,
     static_dir: Option<String>,
     db: Option<DbPool>,
+    run_migrations: bool,
 }
 
 impl App {
@@ -34,6 +35,7 @@ impl App {
             router: Router::new(),
             static_dir: None,
             db: None,
+            run_migrations: false,
         }
     }
 
@@ -48,6 +50,15 @@ impl App {
     /// Sets the application router containing user-defined routes.
     pub fn router(mut self, router: Router) -> Self {
         self.router = router;
+        self
+    }
+
+    /// Run database migrations automatically when [`serve`](Self::serve) starts.
+    ///
+    /// Requires a database pool to be set via [`db`](Self::db). Useful for
+    /// containerized deployments where the app manages its own schema.
+    pub fn run_migrations(mut self) -> Self {
+        self.run_migrations = true;
         self
     }
 
@@ -89,7 +100,15 @@ impl App {
     }
 
     /// Binds to the configured address and starts accepting connections.
+    ///
+    /// If [`run_migrations`](Self::run_migrations) was called, pending
+    /// migrations are applied before the listener binds.
     pub async fn serve(self) -> Result<()> {
+        if self.run_migrations {
+            if let Some(pool) = &self.db {
+                crate::db::migrate(pool).await?;
+            }
+        }
         let addr = format!("{}:{}", self.config.host, self.config.port);
         let router = self.build_router();
         let listener = TcpListener::bind(&addr).await?;

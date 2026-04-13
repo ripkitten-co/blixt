@@ -14,7 +14,7 @@ fn hex_encode(bytes: &[u8]) -> String {
         })
 }
 
-const TAILWIND_VERSION: &str = "4.2.2";
+pub const TAILWIND_VERSION: &str = "4.2.2";
 
 /// Hardcoded download base URL. Must ONLY point to the official GitHub releases.
 /// Do not accept download URLs from configuration or environment variables.

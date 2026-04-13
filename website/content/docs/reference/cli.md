@@ -186,6 +186,35 @@ Password reset emails are sent via the `Mailer` when SMTP is configured. Without
 blixt generate auth
 ```
 
+### blixt generate docker
+
+Generate Docker deployment files.
+
+```
+blixt generate docker
+```
+
+Creates:
+
+- `Dockerfile` — multi-stage build with `cargo-chef` for dependency caching, Tailwind CSS compilation, and a minimal `debian:bookworm-slim` runtime image
+- `docker-compose.yml` — app service with health check, PostgreSQL 17, and optional Redis 7
+- `.dockerignore` — excludes `target/`, `.git/`, `.env` files (keeps `.env.example`)
+
+The command auto-detects Redis usage from your `Cargo.toml` features or `.env.example`:
+
+```
+$ blixt generate docker
+
+  detected PostgreSQL database
+  detected Redis cache
+
+  created Dockerfile
+  created docker-compose.yml
+  created .dockerignore
+```
+
+Fails if any of the files already exist — delete them first to regenerate.
+
 ## blixt db
 
 Database migration commands. All subcommands read `DATABASE_URL` from the environment (or `.env` file) and connect using SQLx's `AnyPool`, which supports both PostgreSQL and SQLite URLs.

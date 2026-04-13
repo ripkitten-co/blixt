@@ -66,6 +66,9 @@ pub mod upload;
 /// Input validation.
 pub mod validate;
 
+#[cfg(feature = "test-helpers")]
+pub mod testing;
+
 #[cfg(test)]
 pub(crate) mod test_helpers;
 
@@ -110,7 +113,7 @@ pub mod prelude {
     pub use crate::mailer::{Mailer, MailerConfig};
     pub use crate::paginate::{Paginated, PaginationParams};
     pub use crate::redact::Redact;
-    pub use crate::storage::Storage;
+    pub use crate::storage::{Storage, WriteResult};
     pub use crate::upload::{MultipartForm, UploadedFile};
     pub use crate::validate::Validator;
     pub use askama::Template;
