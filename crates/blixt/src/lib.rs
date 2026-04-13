@@ -61,6 +61,8 @@ pub mod paginate;
 pub mod redact;
 /// File storage with local filesystem and optional S3 backends.
 pub mod storage;
+/// Multipart file upload handling with validation.
+pub mod upload;
 /// Input validation.
 pub mod validate;
 
@@ -109,6 +111,7 @@ pub mod prelude {
     pub use crate::paginate::{Paginated, PaginationParams};
     pub use crate::redact::Redact;
     pub use crate::storage::Storage;
+    pub use crate::upload::{MultipartForm, UploadedFile};
     pub use crate::validate::Validator;
     pub use askama::Template;
     pub use axum::{
