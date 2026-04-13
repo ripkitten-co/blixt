@@ -4,4 +4,5 @@ pub mod dev;
 pub mod fs_utils;
 pub mod generate;
 pub mod generate_auth;
+pub mod generate_docker;
 pub mod new;

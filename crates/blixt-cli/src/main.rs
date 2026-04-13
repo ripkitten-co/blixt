@@ -64,6 +64,8 @@ enum GenerateKind {
     },
     /// Generate authentication scaffold (users, sessions, login/register)
     Auth,
+    /// Generate Dockerfile, docker-compose.yml, and .dockerignore
+    Docker,
 }
 
 #[derive(Subcommand)]
@@ -155,6 +157,12 @@ fn main() {
             }
             GenerateKind::Auth => {
                 if let Err(msg) = commands::generate_auth::generate_auth() {
+                    eprintln!("{} {msg}", style("error:").red().bold());
+                    std::process::exit(1);
+                }
+            }
+            GenerateKind::Docker => {
+                if let Err(msg) = commands::generate_docker::generate_docker() {
                     eprintln!("{} {msg}", style("error:").red().bold());
                     std::process::exit(1);
                 }
