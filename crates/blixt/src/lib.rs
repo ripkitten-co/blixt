@@ -105,6 +105,7 @@ pub mod prelude {
     };
     pub use crate::db::DbPool;
     pub use crate::db::builder::{Delete, Insert, Order, Select, Update, Value};
+    pub use crate::db::relation::{BelongsTo, ForeignKey, HasId, HasMany, HasOne, Related};
     pub use crate::error::{Error, Result};
     pub use crate::flash::{Flash, Redirect};
     pub use crate::form::{CsrfToken, Form};
