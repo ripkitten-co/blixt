@@ -1142,7 +1142,9 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(rows.len(), 2);
+            assert_eq!(rows[0].name, "p1");
             assert_eq!(rows[0].val, Some("c1".to_string()));
+            assert_eq!(rows[1].name, "p2");
             assert!(rows[1].val.is_none());
         }
     }

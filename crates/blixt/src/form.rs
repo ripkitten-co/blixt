@@ -112,7 +112,6 @@ mod tests {
     #[derive(Deserialize)]
     struct TestForm {
         name: String,
-        #[allow(dead_code)]
         age: u32,
     }
 

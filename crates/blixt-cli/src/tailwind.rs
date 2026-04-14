@@ -259,18 +259,6 @@ fn set_executable(_path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Spawns the Tailwind CSS binary as a child process with the given arguments.
-///
-/// Returns the `Child` handle so the caller can manage the process lifetime
-/// (e.g., for watch mode).
-#[allow(dead_code)]
-pub fn run_tailwind(binary: &Path, args: &[&str]) -> Result<std::process::Child, String> {
-    std::process::Command::new(binary)
-        .args(args)
-        .spawn()
-        .map_err(|err| format!("Failed to spawn Tailwind process: {err}"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
