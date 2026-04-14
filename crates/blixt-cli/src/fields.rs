@@ -95,6 +95,8 @@ impl FieldDef {
 
     pub fn sql_type(&self, dialect: DbDialect) -> &'static str {
         match (self.field_type, dialect) {
+            // Intentionally no DEFAULT for strings: callers must provide explicit text values.
+            // This avoids silently treating "missing" input as an empty string.
             (FieldType::String, _) => "TEXT NOT NULL",
             (FieldType::Int, DbDialect::Postgres) => "BIGINT NOT NULL DEFAULT 0",
             (FieldType::Int, DbDialect::Sqlite) => "INTEGER NOT NULL DEFAULT 0",
