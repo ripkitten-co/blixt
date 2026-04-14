@@ -92,6 +92,23 @@ struct Condition {
     value: Value,
 }
 
+struct InCondition {
+    column: &'static str,
+    values: Vec<Value>,
+}
+
+enum JoinKind {
+    Inner,
+    Left,
+}
+
+struct Join {
+    kind: JoinKind,
+    table: &'static str,
+    on_left: &'static str,
+    on_right: &'static str,
+}
+
 /// Sort direction for ORDER BY clauses.
 #[derive(Debug, Clone, Copy)]
 pub enum Order {
@@ -193,28 +210,61 @@ macro_rules! impl_where {
                 });
                 self
             }
+            /// Filter where column value is in the given list.
+            pub fn where_in(mut self, column: &'static str, values: Vec<Value>) -> Self {
+                self.in_conditions.push(InCondition { column, values });
+                self
+            }
         }
     };
 }
 
-fn build_where_clause(conditions: &[Condition], start_idx: usize) -> (String, usize) {
-    if conditions.is_empty() {
+fn build_where_clause(
+    conditions: &[Condition],
+    in_conditions: &[InCondition],
+    start_idx: usize,
+) -> (String, usize) {
+    if conditions.is_empty() && in_conditions.is_empty() {
         return (String::new(), start_idx);
     }
     let mut idx = start_idx;
-    let wheres: Vec<String> = conditions
-        .iter()
-        .map(|c| {
-            let p = placeholder(idx);
-            idx += 1;
-            format!("{} {} {p}", c.column, c.op)
-        })
-        .collect();
-    (format!(" WHERE {}", wheres.join(" AND ")), idx)
+    let mut parts: Vec<String> = Vec::new();
+
+    for c in conditions {
+        let p = placeholder(idx);
+        idx += 1;
+        parts.push(format!("{} {} {p}", c.column, c.op));
+    }
+
+    for ic in in_conditions {
+        if ic.values.is_empty() {
+            parts.push(format!("{} IN (NULL)", ic.column));
+        } else {
+            let placeholders: Vec<String> = ic
+                .values
+                .iter()
+                .map(|_| {
+                    let p = placeholder(idx);
+                    idx += 1;
+                    p
+                })
+                .collect();
+            parts.push(format!("{} IN ({})", ic.column, placeholders.join(", ")));
+        }
+    }
+
+    (format!(" WHERE {}", parts.join(" AND ")), idx)
 }
 
 fn condition_values(conditions: &[Condition]) -> Vec<Value> {
     conditions.iter().map(|c| c.value.clone()).collect()
+}
+
+fn in_condition_values(in_conditions: &[InCondition]) -> Vec<Value> {
+    in_conditions
+        .iter()
+        .flat_map(|ic| ic.values.clone())
+        .collect()
 }
 
 /// Query builder for SELECT statements.
@@ -222,6 +272,8 @@ pub struct Select {
     table: &'static str,
     columns: Vec<&'static str>,
     conditions: Vec<Condition>,
+    in_conditions: Vec<InCondition>,
+    joins: Vec<Join>,
     order: Option<(&'static str, Order)>,
     limit_val: Option<i64>,
     offset_val: Option<i64>,
@@ -234,6 +286,8 @@ impl Select {
             table,
             columns: Vec::new(),
             conditions: Vec::new(),
+            in_conditions: Vec::new(),
+            joins: Vec::new(),
             order: None,
             limit_val: None,
             offset_val: None,
@@ -264,6 +318,38 @@ impl Select {
         self
     }
 
+    /// Add an INNER JOIN clause.
+    pub fn join(
+        mut self,
+        table: &'static str,
+        on_left: &'static str,
+        on_right: &'static str,
+    ) -> Self {
+        self.joins.push(Join {
+            kind: JoinKind::Inner,
+            table,
+            on_left,
+            on_right,
+        });
+        self
+    }
+
+    /// Add a LEFT JOIN clause.
+    pub fn left_join(
+        mut self,
+        table: &'static str,
+        on_left: &'static str,
+        on_right: &'static str,
+    ) -> Self {
+        self.joins.push(Join {
+            kind: JoinKind::Left,
+            table,
+            on_left,
+            on_right,
+        });
+        self
+    }
+
     fn to_sql(&self) -> String {
         let cols = if self.columns.is_empty() {
             "*".to_string()
@@ -271,7 +357,19 @@ impl Select {
             self.columns.join(", ")
         };
         let mut sql = format!("SELECT {cols} FROM {}", self.table);
-        let (where_clause, mut idx) = build_where_clause(&self.conditions, 1);
+
+        for j in &self.joins {
+            let kind = match j.kind {
+                JoinKind::Inner => "JOIN",
+                JoinKind::Left => "LEFT JOIN",
+            };
+            sql.push_str(&format!(
+                " {kind} {} ON {} = {}",
+                j.table, j.on_left, j.on_right
+            ));
+        }
+
+        let (where_clause, mut idx) = build_where_clause(&self.conditions, &self.in_conditions, 1);
         sql.push_str(&where_clause);
 
         if let Some((col, order)) = &self.order {
@@ -293,6 +391,7 @@ impl Select {
 
     fn all_values(&self) -> Vec<Value> {
         let mut vals = condition_values(&self.conditions);
+        vals.extend(in_condition_values(&self.in_conditions));
         if let Some(limit) = self.limit_val {
             vals.push(Value::I64(limit));
         }
@@ -419,6 +518,7 @@ pub struct Update {
     table: &'static str,
     fields: Vec<(&'static str, Value)>,
     conditions: Vec<Condition>,
+    in_conditions: Vec<InCondition>,
     timestamp_cols: Vec<&'static str>,
 }
 
@@ -436,6 +536,7 @@ impl Update {
             table,
             fields: Vec::new(),
             conditions: Vec::new(),
+            in_conditions: Vec::new(),
             timestamp_cols: Vec::new(),
         }
     }
@@ -473,7 +574,8 @@ impl Update {
         }
         let mut sql = format!("UPDATE {} SET {}", self.table, sets.join(", "));
         let offset = self.fields.len();
-        let (where_clause, _) = build_where_clause(&self.conditions, offset + 1);
+        let (where_clause, _) =
+            build_where_clause(&self.conditions, &self.in_conditions, offset + 1);
         sql.push_str(&where_clause);
         sql
     }
@@ -481,6 +583,7 @@ impl Update {
     fn all_values(&self) -> Vec<Value> {
         let mut vals: Vec<Value> = self.fields.iter().map(|(_, v)| v.clone()).collect();
         vals.extend(condition_values(&self.conditions));
+        vals.extend(in_condition_values(&self.in_conditions));
         vals
     }
 
@@ -517,6 +620,7 @@ where
 pub struct Delete {
     table: &'static str,
     conditions: Vec<Condition>,
+    in_conditions: Vec<InCondition>,
 }
 
 impl Delete {
@@ -525,18 +629,20 @@ impl Delete {
         Self {
             table,
             conditions: Vec::new(),
+            in_conditions: Vec::new(),
         }
     }
 
     /// Execute the delete.
     pub async fn execute(self, pool: &DbPool) -> Result<()> {
-        if self.conditions.is_empty() {
+        if self.conditions.is_empty() && self.in_conditions.is_empty() {
             tracing::warn!(table = self.table, "DELETE without WHERE conditions");
         }
         let mut sql = format!("DELETE FROM {}", self.table);
-        let (where_clause, _) = build_where_clause(&self.conditions, 1);
+        let (where_clause, _) = build_where_clause(&self.conditions, &self.in_conditions, 1);
         sql.push_str(&where_clause);
-        let values = condition_values(&self.conditions);
+        let mut values = condition_values(&self.conditions);
+        values.extend(in_condition_values(&self.in_conditions));
         let query = bind_values_exec(sqlx::query::<Db>(&sql), &values);
         query.execute(pool).await?;
         Ok(())
@@ -614,8 +720,67 @@ mod tests {
         assert!(sql.contains("WHERE id"));
     }
 
-    // Delete SQL generation is tested via db_tests::delete_single_row
-    // and delete_with_condition integration tests.
+    #[test]
+    fn where_in_generates_sql() {
+        let s =
+            Select::from("posts").where_in("id", vec![Value::I64(1), Value::I64(2), Value::I64(3)]);
+        let sql = s.to_sql();
+        assert!(sql.contains("WHERE id IN ("));
+    }
+
+    #[test]
+    fn where_in_empty_generates_null() {
+        let s = Select::from("posts").where_in("id", vec![]);
+        let sql = s.to_sql();
+        assert!(sql.contains("WHERE id IN (NULL)"));
+    }
+
+    #[test]
+    fn where_in_combined_with_where_eq() {
+        let s = Select::from("posts")
+            .where_eq("published", true)
+            .where_in("id", vec![Value::I64(1), Value::I64(2)]);
+        let sql = s.to_sql();
+        assert!(sql.contains("WHERE published"));
+        assert!(sql.contains("AND id IN ("));
+    }
+
+    #[test]
+    fn join_generates_inner_join_sql() {
+        let s = Select::from("posts")
+            .join("users", "users.id", "posts.author_id")
+            .columns(&["posts.*", "users.name"]);
+        let sql = s.to_sql();
+        assert!(sql.contains("JOIN users ON users.id = posts.author_id"));
+        assert!(!sql.contains("LEFT"));
+    }
+
+    #[test]
+    fn left_join_generates_sql() {
+        let s = Select::from("posts").left_join("categories", "categories.id", "posts.category_id");
+        let sql = s.to_sql();
+        assert!(sql.contains("LEFT JOIN categories ON categories.id = posts.category_id"));
+    }
+
+    #[test]
+    fn multiple_joins() {
+        let s = Select::from("posts")
+            .join("users", "users.id", "posts.author_id")
+            .left_join("categories", "categories.id", "posts.category_id");
+        let sql = s.to_sql();
+        assert!(sql.contains("JOIN users"));
+        assert!(sql.contains("LEFT JOIN categories"));
+    }
+
+    #[test]
+    fn join_with_where() {
+        let s = Select::from("posts")
+            .join("users", "users.id", "posts.author_id")
+            .where_eq("users.role", "admin");
+        let sql = s.to_sql();
+        assert!(sql.contains("JOIN users"));
+        assert!(sql.contains("WHERE users.role"));
+    }
 
     #[cfg(feature = "sqlite")]
     mod db_tests {
@@ -831,6 +996,156 @@ mod tests {
                 .unwrap();
             assert_eq!(items.len(), 1);
             assert_eq!(items[0].name, "gamma");
+        }
+
+        #[tokio::test]
+        async fn where_in_fetches_matching_rows() {
+            let pool = test_pool().await;
+            let items = Select::from("test_items")
+                .columns(&["id", "name", "score"])
+                .where_in("id", vec![Value::I64(1), Value::I64(3)])
+                .order_by("id", Order::Asc)
+                .fetch_all::<TestItem>(&pool)
+                .await
+                .unwrap();
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[0].name, "alpha");
+            assert_eq!(items[1].name, "gamma");
+        }
+
+        #[tokio::test]
+        async fn where_in_with_no_matches() {
+            let pool = test_pool().await;
+            let items = Select::from("test_items")
+                .columns(&["id", "name", "score"])
+                .where_in("id", vec![Value::I64(99), Value::I64(100)])
+                .fetch_all::<TestItem>(&pool)
+                .await
+                .unwrap();
+            assert_eq!(items.len(), 0);
+        }
+
+        #[tokio::test]
+        async fn where_in_empty_returns_nothing() {
+            let pool = test_pool().await;
+            let items = Select::from("test_items")
+                .columns(&["id", "name", "score"])
+                .where_in("id", vec![])
+                .fetch_all::<TestItem>(&pool)
+                .await
+                .unwrap();
+            assert_eq!(items.len(), 0);
+        }
+
+        #[tokio::test]
+        async fn delete_with_where_in() {
+            let pool = test_pool().await;
+            Delete::from("test_items")
+                .where_in("id", vec![Value::I64(1), Value::I64(2)])
+                .execute(&pool)
+                .await
+                .unwrap();
+            let items = Select::from("test_items")
+                .columns(&["id", "name", "score"])
+                .fetch_all::<TestItem>(&pool)
+                .await
+                .unwrap();
+            assert_eq!(items.len(), 1);
+            assert_eq!(items[0].name, "gamma");
+        }
+
+        #[tokio::test]
+        async fn join_fetches_combined_rows() {
+            let pool = test_pool().await;
+            sqlx::query(
+                "CREATE TABLE test_categories (id INTEGER PRIMARY KEY, label TEXT NOT NULL)",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query("INSERT INTO test_categories (id, label) VALUES (1, 'A'), (2, 'B')")
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query(
+                "CREATE TABLE test_tagged (id INTEGER PRIMARY KEY, name TEXT NOT NULL, cat_id INTEGER NOT NULL)",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query(
+                "INSERT INTO test_tagged (id, name, cat_id) VALUES (1, 'x', 1), (2, 'y', 2)",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            #[derive(Debug, sqlx::FromRow)]
+            struct TaggedWithCat {
+                name: String,
+                label: String,
+            }
+
+            let rows = Select::from("test_tagged")
+                .join(
+                    "test_categories",
+                    "test_categories.id",
+                    "test_tagged.cat_id",
+                )
+                .columns(&["test_tagged.name", "test_categories.label"])
+                .order_by("test_tagged.id", Order::Asc)
+                .fetch_all::<TaggedWithCat>(&pool)
+                .await
+                .unwrap();
+            assert_eq!(rows.len(), 2);
+            assert_eq!(rows[0].name, "x");
+            assert_eq!(rows[0].label, "A");
+        }
+
+        #[tokio::test]
+        async fn left_join_includes_nulls() {
+            let pool = test_pool().await;
+            sqlx::query("CREATE TABLE test_parents (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO test_parents (id, name) VALUES (1, 'p1'), (2, 'p2')")
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query(
+                "CREATE TABLE test_children (id INTEGER PRIMARY KEY, parent_id INTEGER, val TEXT)",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query("INSERT INTO test_children (id, parent_id, val) VALUES (1, 1, 'c1')")
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            #[derive(Debug, sqlx::FromRow)]
+            struct ParentChild {
+                name: String,
+                val: Option<String>,
+            }
+
+            let rows = Select::from("test_parents")
+                .left_join(
+                    "test_children",
+                    "test_children.parent_id",
+                    "test_parents.id",
+                )
+                .columns(&["test_parents.name", "test_children.val"])
+                .order_by("test_parents.id", Order::Asc)
+                .fetch_all::<ParentChild>(&pool)
+                .await
+                .unwrap();
+            assert_eq!(rows.len(), 2);
+            assert_eq!(rows[0].name, "p1");
+            assert_eq!(rows[0].val, Some("c1".to_string()));
+            assert_eq!(rows[1].name, "p2");
+            assert!(rows[1].val.is_none());
         }
     }
 }

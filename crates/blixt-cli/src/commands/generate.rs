@@ -571,6 +571,8 @@ fn write_model_file(
     }"#,
     );
 
+    let relation_impls = build_relation_impls(pascal, fields);
+
     let content = format!(
         r#"use blixt::prelude::*;
 use sqlx::types::chrono::{{DateTime, Utc}};
@@ -585,14 +587,52 @@ pub struct {pascal} {{
     pub updated_at: DateTime<Utc>,
 }}
 
+impl HasId for {pascal} {{
+    fn id(&self) -> i64 {{
+        self.id
+    }}
+}}
+
 impl {pascal} {{
 {methods}
 }}
-"#
+{relation_impls}"#
     );
 
     ensure_dir_exists(&dir)?;
     write_file(&path, &content)
+}
+
+fn build_relation_impls(pascal: &str, fields: &[FieldDef]) -> String {
+    let mut out = String::new();
+    for f in fields {
+        if !f.is_foreign_key() {
+            continue;
+        }
+        let parent_model = f.parent_model_name().unwrap();
+        let parent_table = f.parent_table_name().unwrap();
+        let fk = &f.name;
+
+        out.push_str(&format!(
+            r#"
+impl BelongsTo<super::{parent_snake}::{parent_model}> for {pascal} {{
+    const FOREIGN_KEY: &'static str = "{fk}";
+    const PARENT_TABLE: &'static str = "{parent_table}";
+    fn fk_value(&self) -> i64 {{
+        self.{fk}
+    }}
+}}
+
+impl ForeignKey<super::{parent_snake}::{parent_model}> for {pascal} {{
+    fn fk_value(&self) -> i64 {{
+        self.{fk}
+    }}
+}}
+"#,
+            parent_snake = fk.strip_suffix("_id").unwrap(),
+        ));
+    }
+    out
 }
 
 fn build_column_list(fields: &[FieldDef]) -> Vec<String> {
@@ -1187,5 +1227,55 @@ mod tests {
         assert!(!model.contains("$1"));
         assert!(!model.contains("query_as!"));
         assert!(!model.contains("query!"));
+    }
+
+    #[test]
+    fn model_generates_has_id() {
+        let tmp = TempDir::new().expect("temp dir");
+        generate_model_in(tmp.path(), "Post", &[]).expect("generate failed");
+        let model =
+            fs::read_to_string(tmp.path().join("src/models/post.rs")).expect("model missing");
+        assert!(model.contains("impl HasId for Post"));
+    }
+
+    #[test]
+    fn model_with_fk_generates_belongs_to() {
+        let tmp = TempDir::new().expect("temp dir");
+        let fields = vec![
+            FieldDef {
+                name: "title".into(),
+                field_type: FieldType::String,
+            },
+            FieldDef {
+                name: "author_id".into(),
+                field_type: FieldType::Int,
+            },
+        ];
+
+        generate_model_in(tmp.path(), "Post", &fields).expect("generate failed");
+        let model =
+            fs::read_to_string(tmp.path().join("src/models/post.rs")).expect("model missing");
+        assert!(
+            model.contains("impl BelongsTo<super::author::Author> for Post"),
+            "missing BelongsTo impl:\n{model}"
+        );
+        assert!(model.contains("FOREIGN_KEY: &'static str = \"author_id\""));
+        assert!(model.contains("PARENT_TABLE: &'static str = \"authors\""));
+        assert!(model.contains("impl ForeignKey<super::author::Author> for Post"));
+    }
+
+    #[test]
+    fn model_without_fk_has_no_relationship_impls() {
+        let tmp = TempDir::new().expect("temp dir");
+        let fields = vec![FieldDef {
+            name: "title".into(),
+            field_type: FieldType::String,
+        }];
+
+        generate_model_in(tmp.path(), "Post", &fields).expect("generate failed");
+        let model =
+            fs::read_to_string(tmp.path().join("src/models/post.rs")).expect("model missing");
+        assert!(!model.contains("BelongsTo"));
+        assert!(!model.contains("ForeignKey"));
     }
 }

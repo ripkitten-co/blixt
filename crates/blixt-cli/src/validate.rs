@@ -41,7 +41,6 @@ pub fn validate_name(input: &str) -> Result<String, String> {
 ///
 /// Handles PascalCase, camelCase, and already-snake_case inputs.
 /// Consecutive uppercase letters (acronyms) are lowered as a group.
-#[allow(dead_code)]
 pub fn to_snake_case(name: &str) -> String {
     let mut result = String::with_capacity(name.len() + 4);
     let chars: Vec<char> = name.chars().collect();
@@ -69,7 +68,6 @@ pub fn to_snake_case(name: &str) -> String {
 /// Converts a name to `PascalCase`.
 ///
 /// Handles snake_case and already-PascalCase inputs.
-#[allow(dead_code)]
 pub fn to_pascal_case(name: &str) -> String {
     name.split('_')
         .filter(|segment| !segment.is_empty())
@@ -81,7 +79,6 @@ pub fn to_pascal_case(name: &str) -> String {
 ///
 /// Covers regular nouns, sibilant endings (s/x/z/sh/ch → es),
 /// consonant+y → ies, and vowel+y → s.
-#[allow(dead_code)]
 pub fn pluralize(word: &str) -> String {
     if word.ends_with('s')
         || word.ends_with('x')

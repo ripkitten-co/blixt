@@ -108,6 +108,26 @@ impl FieldDef {
     pub fn is_string(&self) -> bool {
         self.field_type == FieldType::String
     }
+
+    pub fn is_foreign_key(&self) -> bool {
+        self.name.ends_with("_id") && self.field_type == FieldType::Int
+    }
+
+    pub fn parent_model_name(&self) -> Option<String> {
+        if !self.is_foreign_key() {
+            return None;
+        }
+        let stem = self.name.strip_suffix("_id")?;
+        Some(crate::validate::to_pascal_case(stem))
+    }
+
+    pub fn parent_table_name(&self) -> Option<String> {
+        if !self.is_foreign_key() {
+            return None;
+        }
+        let stem = self.name.strip_suffix("_id")?;
+        Some(crate::validate::pluralize(stem))
+    }
 }
 
 pub fn parse_fields(args: &[&str]) -> Result<Vec<FieldDef>, String> {
@@ -297,6 +317,35 @@ mod tests {
         assert!(parse_fields(&["order:int"]).is_err());
         assert!(parse_fields(&["table:bool"]).is_err());
         assert!(parse_fields(&["index:string"]).is_err());
+    }
+
+    #[test]
+    fn is_foreign_key_detects_id_suffix() {
+        let fk = FieldDef {
+            name: "post_id".into(),
+            field_type: FieldType::Int,
+        };
+        assert!(fk.is_foreign_key());
+        assert_eq!(fk.parent_model_name().unwrap(), "Post");
+        assert_eq!(fk.parent_table_name().unwrap(), "posts");
+    }
+
+    #[test]
+    fn is_foreign_key_rejects_non_int() {
+        let field = FieldDef {
+            name: "post_id".into(),
+            field_type: FieldType::String,
+        };
+        assert!(!field.is_foreign_key());
+    }
+
+    #[test]
+    fn is_foreign_key_rejects_plain_name() {
+        let field = FieldDef {
+            name: "score".into(),
+            field_type: FieldType::Int,
+        };
+        assert!(!field.is_foreign_key());
     }
 
     #[test]

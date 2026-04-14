@@ -6,6 +6,8 @@ mod sqlite;
 /// Type-safe query builder for CRUD operations.
 pub mod builder;
 mod macros;
+/// Relationship traits and batch loader.
+pub mod relation;
 
 #[cfg(all(feature = "postgres", not(all(feature = "sqlite", not(docsrs)))))]
 pub use self::postgres::create_pool;
