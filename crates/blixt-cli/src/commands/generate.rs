@@ -215,12 +215,12 @@ pub struct {pascal}Show {{
 }}
 
 async fn fetch_page(pool: &DbPool, page_num: u32) -> Result<Paginated<{pascal}>> {{
-    Paginated::<{pascal}>::query(
-        "SELECT {col_list} FROM {plural} ORDER BY id DESC",
-        pool,
-        &PaginationParams::new(page_num, PER_PAGE),
-    )
-    .await
+    Paginated::<{pascal}>::query_builder()
+        .columns(&[{col_list}])
+        .from("{plural}")
+        .order_by("id DESC")
+        .paginate(pool, &PaginationParams::new(page_num, PER_PAGE))
+        .await
 }}
 
 pub async fn index(
