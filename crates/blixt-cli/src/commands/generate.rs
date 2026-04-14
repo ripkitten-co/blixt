@@ -144,9 +144,6 @@ fn write_scaffold_controller_file(
 ) -> Result<(), String> {
     let dir = base.join("src/controllers");
     let path = dir.join(format!("{snake}.rs"));
-    let plural = pluralize(snake);
-
-    let col_list = build_column_list(fields).join(", ");
 
     let signal_extractions: String = fields
         .iter()
@@ -215,12 +212,11 @@ pub struct {pascal}Show {{
 }}
 
 async fn fetch_page(pool: &DbPool, page_num: u32) -> Result<Paginated<{pascal}>> {{
-    Paginated::<{pascal}>::query(
-        "SELECT {col_list} FROM {plural} ORDER BY id DESC",
-        pool,
-        &PaginationParams::new(page_num, PER_PAGE),
-    )
-    .await
+    Select::from({pascal}::TABLE)
+        .columns({pascal}::COLUMNS)
+        .order_by("id", Order::Desc)
+        .paginate::<{pascal}>(pool, &PaginationParams::new(page_num, PER_PAGE))
+        .await
 }}
 
 pub async fn index(
@@ -497,10 +493,18 @@ fn write_model_file(
 
     let mut methods = String::new();
 
+    // associated constants
+    methods.push_str(&format!(
+        r#"    pub const TABLE: &'static str = "{plural}";
+    pub const COLUMNS: &'static [&'static str] = &[{columns_literal}];"#
+    ));
+
     // find_by_id
     methods.push_str(
-        r#"    pub async fn find_by_id(pool: &DbPool, id: i64) -> Result<Self> {
-        Select::from(TABLE).columns(COLUMNS).where_eq("id", id)
+        r#"
+
+    pub async fn find_by_id(pool: &DbPool, id: i64) -> Result<Self> {
+        Select::from(Self::TABLE).columns(Self::COLUMNS).where_eq("id", id)
             .fetch_one::<Self>(pool).await
     }"#,
     );
@@ -510,7 +514,7 @@ fn write_model_file(
         r#"
 
     pub async fn find_all(pool: &DbPool) -> Result<Vec<Self>> {
-        Select::from(TABLE).columns(COLUMNS).order_by("id", Order::Desc)
+        Select::from(Self::TABLE).columns(Self::COLUMNS).order_by("id", Order::Desc)
             .fetch_all::<Self>(pool).await
     }"#,
     );
@@ -537,8 +541,8 @@ fn write_model_file(
             r#"
 
     pub async fn create(pool: &DbPool{create_params}) -> Result<Self> {{
-        Insert::into(TABLE){create_sets}
-            .returning::<Self>(COLUMNS)
+        Insert::into(Self::TABLE){create_sets}
+            .returning::<Self>(Self::COLUMNS)
             .execute(pool).await
     }}"#
         ));
@@ -553,10 +557,10 @@ fn write_model_file(
             r#"
 
     pub async fn update(pool: &DbPool, id: i64{update_params}) -> Result<Self> {{
-        Update::table(TABLE){update_sets}
+        Update::table(Self::TABLE){update_sets}
             .set_timestamp("updated_at")
             .where_eq("id", id)
-            .returning::<Self>(COLUMNS)
+            .returning::<Self>(Self::COLUMNS)
             .execute(pool).await
     }}"#
         ));
@@ -567,7 +571,7 @@ fn write_model_file(
         r#"
 
     pub async fn delete(pool: &DbPool, id: i64) -> Result<()> {
-        Delete::from(TABLE).where_eq("id", id).execute(pool).await
+        Delete::from(Self::TABLE).where_eq("id", id).execute(pool).await
     }"#,
     );
 
@@ -576,9 +580,6 @@ fn write_model_file(
     let content = format!(
         r#"use blixt::prelude::*;
 use sqlx::types::chrono::{{DateTime, Utc}};
-
-const TABLE: &str = "{plural}";
-const COLUMNS: &[&str] = &[{columns_literal}];
 
 #[derive(Debug, FromRow, Serialize, Deserialize)]
 pub struct {pascal} {{
@@ -933,8 +934,8 @@ mod tests {
         assert!(model.contains("find_by_id"));
         assert!(model.contains("find_all"));
         assert!(model.contains("delete"));
-        assert!(model.contains("Select::from(TABLE)"));
-        assert!(model.contains("Delete::from(TABLE)"));
+        assert!(model.contains("Select::from(Self::TABLE)"));
+        assert!(model.contains("Delete::from(Self::TABLE)"));
 
         let entries: Vec<_> = fs::read_dir(base.join("migrations"))
             .expect("migrations dir missing")
@@ -1014,9 +1015,9 @@ mod tests {
         assert!(model.contains("pub published: bool"));
         assert!(model.contains("pub async fn create("));
         assert!(model.contains("pub async fn update("));
-        assert!(model.contains("Insert::into(TABLE)"));
-        assert!(model.contains("Update::table(TABLE)"));
-        assert!(model.contains(".returning::<Self>(COLUMNS)"));
+        assert!(model.contains("Insert::into(Self::TABLE)"));
+        assert!(model.contains("Update::table(Self::TABLE)"));
+        assert!(model.contains(".returning::<Self>(Self::COLUMNS)"));
 
         let migration_dir = base.join("migrations");
         let entries: Vec<_> = fs::read_dir(&migration_dir)
@@ -1054,6 +1055,20 @@ mod tests {
         assert!(controller.contains("Validator"));
         assert!(controller.contains("SseResponse"));
         assert!(controller.contains("SseFragment"));
+
+        // fetch_page must use the Select query builder, not raw SQL
+        assert!(
+            controller.contains("Select::from(Post::TABLE)"),
+            "scaffold should use Select builder with model consts for pagination"
+        );
+        assert!(
+            controller.contains(".paginate::<Post>("),
+            "scaffold should call .paginate() on Select"
+        );
+        assert!(
+            !controller.contains("\"SELECT "),
+            "scaffold should not contain raw SELECT SQL strings"
+        );
     }
 
     #[test]
@@ -1214,12 +1229,12 @@ mod tests {
         generate_model_in(base, "Post", &fields).expect("generate failed");
 
         let model = fs::read_to_string(base.join("src/models/post.rs")).expect("model missing");
-        assert!(model.contains("const TABLE: &str = \"posts\""));
-        assert!(model.contains("const COLUMNS: &[&str]"));
-        assert!(model.contains("Select::from(TABLE)"));
-        assert!(model.contains("Insert::into(TABLE)"));
-        assert!(model.contains("Update::table(TABLE)"));
-        assert!(model.contains("Delete::from(TABLE)"));
+        assert!(model.contains("pub const TABLE: &'static str = \"posts\""));
+        assert!(model.contains("pub const COLUMNS: &'static [&'static str]"));
+        assert!(model.contains("Select::from(Self::TABLE)"));
+        assert!(model.contains("Insert::into(Self::TABLE)"));
+        assert!(model.contains("Update::table(Self::TABLE)"));
+        assert!(model.contains("Delete::from(Self::TABLE)"));
         assert!(model.contains(".where_eq(\"id\", id)"));
         assert!(model.contains(".set(\"title\", title)"));
         assert!(model.contains(".set(\"active\", active)"));

@@ -172,6 +172,57 @@ async fn count_total(base_sql: &str, pool: &DbPool) -> Result<i64> {
     Ok(row.0)
 }
 
+/// Builds and runs a COUNT(*) wrapper query with pre-bound values.
+///
+/// Used by `Select::paginate()` where the base SQL contains placeholders
+/// for WHERE clauses. The values must match the placeholder order.
+pub(crate) async fn count_with_values(
+    base_sql: &str,
+    values: &[crate::db::builder::Value],
+    pool: &DbPool,
+) -> Result<i64> {
+    use crate::db::builder::Value;
+    let count_sql = format!("SELECT COUNT(*) FROM ({base_sql}) AS _blixt_count");
+    let mut q = sqlx::query_as::<Db, (i64,)>(&count_sql);
+    for v in values {
+        q = match v {
+            Value::String(s) => q.bind(s.clone()),
+            Value::I64(n) => q.bind(*n),
+            Value::F64(f) => q.bind(*f),
+            Value::Bool(b) => q.bind(*b),
+            Value::Null => q.bind(None::<String>),
+        };
+    }
+    let row = q.fetch_one(pool).await?;
+    Ok(row.0)
+}
+
+/// Builds a `Paginated<T>` from pre-computed count and items.
+///
+/// Internal helper for `Select::paginate()`.
+pub(crate) fn build_paginated<T>(
+    items: Vec<T>,
+    total: i64,
+    params: &PaginationParams,
+) -> Paginated<T> {
+    let page = params.page();
+    let per_page = params.per_page();
+    let total_pages = if total == 0 {
+        1
+    } else {
+        (total as u32).div_ceil(per_page)
+    };
+    Paginated {
+        items,
+        page,
+        per_page,
+        total,
+        total_pages,
+        has_next: page < total_pages,
+        has_prev: page > 1,
+    }
+}
+
 /// Fetches a single page of results with LIMIT/OFFSET appended.
 #[cfg(all(feature = "sqlite", not(feature = "postgres"), not(docsrs)))]
 async fn fetch_page<T>(base_sql: &str, pool: &DbPool, per_page: u32, offset: u32) -> Result<Vec<T>>
@@ -462,5 +513,86 @@ mod db_tests {
         assert_eq!(result.total_pages, 1);
         assert!(!result.has_next);
         assert!(!result.has_prev);
+    }
+
+    #[derive(Debug, FromRow, serde::Serialize)]
+    struct TestItem {
+        id: i64,
+        name: String,
+    }
+
+    #[tokio::test]
+    async fn select_paginate_first_page() {
+        use crate::db::builder::{Order, Select};
+
+        let pool = setup_test_db().await;
+        let params = PaginationParams {
+            page: Some(1),
+            per_page: Some(10),
+        };
+
+        let result = Select::from("items")
+            .columns(&["id", "name"])
+            .order_by("id", Order::Asc)
+            .paginate::<TestItem>(&pool, &params)
+            .await
+            .expect("paginate");
+
+        assert_eq!(result.items.len(), 10);
+        assert_eq!(result.total, 30);
+        assert_eq!(result.total_pages, 3);
+        assert_eq!(result.items[0].name, "item-1");
+        assert!(result.has_next);
+        assert!(!result.has_prev);
+    }
+
+    #[tokio::test]
+    async fn select_paginate_with_where_clause() {
+        use crate::db::builder::{Order, Select};
+
+        let pool = setup_test_db().await;
+        let params = PaginationParams {
+            page: Some(1),
+            per_page: Some(5),
+        };
+
+        // Items 20..=30 have id > 19 → 11 matching rows
+        let result = Select::from("items")
+            .columns(&["id", "name"])
+            .where_gt("id", 19i64)
+            .order_by("id", Order::Asc)
+            .paginate::<TestItem>(&pool, &params)
+            .await
+            .expect("paginate with where");
+
+        assert_eq!(result.items.len(), 5);
+        assert_eq!(result.total, 11);
+        assert_eq!(result.total_pages, 3);
+        assert_eq!(result.items[0].id, 20);
+    }
+
+    #[tokio::test]
+    async fn select_paginate_overrides_user_limit_offset() {
+        use crate::db::builder::{Order, Select};
+
+        let pool = setup_test_db().await;
+        let params = PaginationParams {
+            page: Some(1),
+            per_page: Some(10),
+        };
+
+        // User's .limit(5).offset(2) should be ignored — params win
+        let result = Select::from("items")
+            .columns(&["id", "name"])
+            .order_by("id", Order::Asc)
+            .limit(5)
+            .offset(2)
+            .paginate::<TestItem>(&pool, &params)
+            .await
+            .expect("paginate");
+
+        assert_eq!(result.items.len(), 10);
+        assert_eq!(result.total, 30);
+        assert_eq!(result.items[0].id, 1);
     }
 }

@@ -430,6 +430,34 @@ impl Select {
         let query = bind_values(sqlx::query_as::<Db, T>(&sql), &values);
         Ok(query.fetch_optional(pool).await?)
     }
+
+    /// Execute this SELECT as a paginated query.
+    ///
+    /// Runs a `COUNT(*)` wrapper to determine the total, then fetches the
+    /// requested page. Any `.limit()` or `.offset()` already set on this
+    /// Select is overridden by the pagination params.
+    pub async fn paginate<T>(
+        mut self,
+        pool: &DbPool,
+        params: &crate::paginate::PaginationParams,
+    ) -> Result<crate::paginate::Paginated<T>>
+    where
+        T: for<'r> FromRow<'r, DbRow> + Send + Unpin + serde::Serialize,
+    {
+        // Clear any pagination the user may have set — params are authoritative.
+        self.limit_val = None;
+        self.offset_val = None;
+
+        let base_sql = self.to_sql();
+        let base_values = self.all_values();
+        let total = crate::paginate::count_with_values(&base_sql, &base_values, pool).await?;
+
+        self.limit_val = Some(params.per_page() as i64);
+        self.offset_val = Some(params.offset() as i64);
+        let items: Vec<T> = self.fetch_all(pool).await?;
+
+        Ok(crate::paginate::build_paginated(items, total, params))
+    }
 }
 
 impl_where!(Select);
