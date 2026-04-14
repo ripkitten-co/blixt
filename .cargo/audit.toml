@@ -1,0 +1,37 @@
+# cargo-audit configuration
+#
+# Advisories listed here have been explicitly reviewed and accepted. Each
+# entry must document: the advisory ID, the vulnerable crate, the reason
+# the advisory does not affect Blixt, and the upstream blocker preventing
+# an upgrade. Review on every release and whenever a listed crate ships
+# a new version.
+
+[advisories]
+ignore = [
+  # RUSTSEC-2026-0097 — rand 0.8.x unsound when a custom `log`-based logger
+  # calls `rand::rng()` inside its handler AND ThreadRng reseeds AND
+  # trace-level logging is active. Fixed upstream in rand 0.9.3.
+  #
+  # Not affected: Blixt uses `tracing`, has no custom logger, and never
+  # calls `rand::rng()` from a logging path. All four trigger conditions
+  # must hold simultaneously to manifest the soundness issue.
+  #
+  # Blocker: rand 0.8.x is pinned transitively by jsonwebtoken, sqlx-postgres,
+  # rsa, num-bigint-dig, and fake. Upgrading to rand 0.9.3+ requires major
+  # version bumps from those upstream crates.
+  "RUSTSEC-2026-0097",
+
+  # RUSTSEC-2023-0071 — rsa crate Marvin Attack timing sidechannel. The
+  # vulnerability leaks private key material through observable timing
+  # differences during RSA operations. No upstream fix yet.
+  #
+  # Not affected: Blixt pins JWT to HS256 (HMAC-SHA256) and explicitly
+  # rejects the `none` algorithm. We never perform RSA key operations.
+  # The rsa crate reaches us transitively via jsonwebtoken (RS256 support
+  # we do not enable) and sqlx-mysql (we use Postgres/SQLite only).
+  #
+  # Blocker: rsa crate upstream is working on a constant-time rewrite but
+  # has not shipped. The transitive path cannot be removed without forking
+  # jsonwebtoken or waiting for upstream RSA replacement.
+  "RUSTSEC-2023-0071",
+]
