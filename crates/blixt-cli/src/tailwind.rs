@@ -14,13 +14,13 @@ fn hex_encode(bytes: &[u8]) -> String {
         })
 }
 
-pub const TAILWIND_VERSION: &str = "4.2.2";
+pub const TAILWIND_VERSION: &str = "4.2.1";
 
 /// Hardcoded download base URL. Must ONLY point to the official GitHub releases.
 /// Do not accept download URLs from configuration or environment variables.
 const DOWNLOAD_BASE: &str = "https://github.com/tailwindlabs/tailwindcss/releases/download";
 
-// SHA-256 checksums from https://github.com/tailwindlabs/tailwindcss/releases/tag/v4.2.2
+// SHA-256 checksums from https://github.com/tailwindlabs/tailwindcss/releases/tag/v4.2.1
 const TAILWIND_CHECKSUMS: &[(&str, &str)] = &[
     (
         "macos-arm64",
