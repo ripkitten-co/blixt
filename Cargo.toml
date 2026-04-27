@@ -67,7 +67,7 @@ opendal = "0.55"
 bytes = "1"
 
 # Test data generation
-fake = { version = "3", features = ["derive"] }
+fake = { version = "5", features = ["derive"] }
 
 # Filesystem
 dirs = "6"
