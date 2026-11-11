@@ -114,6 +114,14 @@ fn main() {
         }
         Commands::Dev => {
             let runtime = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+
+            runtime.spawn(async {
+                if tokio::signal::ctrl_c().await.is_ok() {
+                    eprintln!("\n{}", style("Interrupted, exiting...").yellow());
+                    std::process::exit(130); // 130 是 Ctrl+C 的惯例退出码
+                }
+            });
+
             if let Err(message) = runtime.block_on(commands::dev::run()) {
                 eprintln!("{} {message}", style("error:").red().bold());
                 std::process::exit(1);
